@@ -180,7 +180,7 @@ public final class DuelText {
     public static final String HINT_SELECT_CANCELABLE = "ygomc.duel.hint.select_cancelable";
     /** 没有任何落点、就是一个按钮列表：选一项。 */
     public static final String HINT_PICK = "ygomc.duel.hint.pick";
-    /** 询问还没到（服务端还没发问题过来）。 */
+    /** 保留的旧文案位。状态条不再用它：没有询问与已经交卷是两句不同的话。 */
     public static final String HINT_WAITING = "ygomc.duel.hint.waiting";
 
     // ── 进度行 ────────────────────────────────────────────────────────────
@@ -211,8 +211,10 @@ public final class DuelText {
     public static final String HAND_MINE = "ygomc.duel.hand.mine";
     public static final String HAND_OPPONENT = "ygomc.duel.hand.opponent";
 
-    // ── 状态条标题三态 ────────────────────────────────────────────────────
+    // ── 状态条标题 ────────────────────────────────────────────────────────
+    /** 没有待答的询问：对方（或引擎）在推进。 */
     public static final String STATUS_WAITING = "ygomc.duel.status.waiting";
+    /** 答案已经交出去，这一问还挂着，等下一帧。 */
     public static final String STATUS_SUBMITTED = "ygomc.duel.status.submitted";
     public static final String STATUS_NO_BOARD = "ygomc.duel.status.no_board";
 

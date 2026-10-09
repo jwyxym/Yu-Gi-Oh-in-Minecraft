@@ -2,6 +2,7 @@ package cn.xm1221.ygomc.common.client;
 
 import cn.xm1221.ygomc.common.duel.DuelDiskHooks;
 import cn.xm1221.ygomc.common.net.YgomcNet;
+import dev.architectury.event.events.client.ClientPlayerEvent;
 import net.minecraft.client.Minecraft;
 
 /**
@@ -47,6 +48,20 @@ public final class DuelClient {
         // 决斗盘右键空气 = 回到对局界面。钩子挂在这里而不是物品类里：
         // 物品是两端共用的类，直接引用本类会让专用服务器加载到 Minecraft。
         DuelDiskHooks.installReopen(DuelClient::reopenScreen);
+        // 离开世界：界面对象还指着上一局的话，决斗盘右键会把它拽回来；
+        // 卡图纹理挂在上一份纹理管理器上，不放的话重进世界用的是已经释放的纹理。
+        ClientPlayerEvent.CLIENT_PLAYER_QUIT.register(player -> leaveWorld());
+    }
+
+    /** 断开连接 / 回到标题画面。只清客户端自己的东西，不动服务端那一局。 */
+    static void leaveWorld() {
+        Minecraft mc = Minecraft.getInstance();
+        if (screen != null && mc.screen == screen) {
+            mc.setScreen(null);
+        }
+        screen = null;
+        everShown = false;
+        CardTextures.clear();
     }
 
     /**
@@ -112,17 +127,16 @@ public final class DuelClient {
             return;
         }
         if (screen == null) {
-            screen = new DuelScreen(update.board(), update.question(), update.viewerSeat(),
-                    update.notice());
+            // 先建空屏，再走 update。被自动回掉的空时点如果在构造器里就塞进询问，
+            // 会在 update 决定「这一问不摆」之前先画出来。
+            screen = new DuelScreen(update.board(), null, update.viewerSeat(), null);
             everShown = false;
-        } else {
-            screen.update(update.board(), update.question(), update.viewerSeat(),
-                    update.notice());
         }
-        // 必发提示也算「值得把界面推到玩家眼前」：那正是「我什么都没按，它自己动了」
-        // 的时刻，界面不在最前面的话玩家根本看不到（它是一次性的）。
-        boolean worthShowing = update.question() != null || update.notice() != null;
-        if (DuelScreenFlow.shouldShow(everShown, worthShowing, mc.screen == screen)) {
+        // update 的返回值已经把「自动回掉的空时点」和「不画的必发提示」排除掉了。
+        // 以前这里用 question != null || notice != null，那两样都会把关掉界面的玩家拽回来。
+        boolean attention = screen.update(update.board(), update.question(), update.viewerSeat(),
+                update.notice());
+        if (DuelScreenFlow.shouldShow(everShown, attention, mc.screen == screen)) {
             mc.setScreen(screen);
             everShown = true;
         }

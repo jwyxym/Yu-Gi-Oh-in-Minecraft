@@ -130,8 +130,8 @@
   "ygomc.duel.hand.mine": "Your hand %d",
   "ygomc.duel.hand.opponent": "Opponent's hand %d",
 
-  "ygomc.duel.status.waiting": "Waiting for the server...",
-  "ygomc.duel.status.submitted": "Sent, waiting for the opponent...",
+  "ygomc.duel.status.waiting": "Opponent is acting...",
+  "ygomc.duel.status.submitted": "Sent, waiting for the server...",
   "ygomc.duel.status.no_board": "No field data yet",
   "ygomc.duel.status.chain": "Chain %s",
   "ygomc.duel.skip.ignore": "Ignore",

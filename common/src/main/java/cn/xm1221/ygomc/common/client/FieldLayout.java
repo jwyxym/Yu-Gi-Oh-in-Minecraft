@@ -37,10 +37,10 @@ package cn.xm1221.ygomc.common.client;
  * 而不是让七列缩在屏幕中间一小块——ygo 客户端的怪兽区本来就是摊开的。
  * 间距上限是一个卡宽：再宽五格就成了一排孤零零的小卡片。
  *
- * <h2>底部不再留状态条</h2>
- * 原先底部有 {@code FOOTER_H=38} 的状态条（问题标题 + 提示 + 进度）。
- * 那些文字现在都进右侧信息面板，于是这 38 像素全部还给牌桌——
- * 纵向本来就是卡高的瓶颈，这是让场地变大最直接的一处。
+ * <h2>底部状态条只放询问</h2>
+ * 场地底部有一条 {@code STATUS_H=24} 的状态条（询问标题与操作提示）。
+ * 它从可用高度里减掉，<b>不覆盖任何一行卡</b>。右侧面板只放卡片信息。
+ * 早期曾经把整条状态条取消、文字塞进右面板，卡文就被顶掉了，所以这条又加了回来。
  */
 public record FieldLayout(int width, int height,
                           int cellW, int cellH, int handH,
@@ -121,7 +121,7 @@ public record FieldLayout(int width, int height,
         int margin = Math.max(2, Math.min(6, fieldW / 60));
         int gapY = Math.max(1, Math.min(2, fieldW / 240));
 
-        // 7 行 + 6 个间距 + 顶部阶段条 + 上下留白，全部显式减掉。底部不再留状态条。
+        // 7 行 + 6 个间距 + 顶部阶段条 + 底部状态条 + 上下留白，全部显式减掉。
         int usableH = height - HEADER_H - STATUS_H - 2 * margin - 6 * gapY;
         // 横向约束：7 列 + 6 个最小间距也必须放得下，否则 gapX 被压到下限时就会溢出。
         int usableW = fieldW - 2 * margin - 6 * gapY;

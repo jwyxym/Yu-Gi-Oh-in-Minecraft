@@ -84,6 +84,57 @@ public final class DuelScreenFlow {
         return cancelable && nothingChosen;
     }
 
+    /**
+     * 这一帧值不值得把已经关掉的界面重新推到玩家眼前。
+     *
+     * <p>两个「不值得」是 2026-10-09 对上的：
+     * <ul>
+     *   <li>时点略过已经替玩家回了「不发动」的空时点。默认「可用时点」下一局有上百次，
+     *       每一次都 {@code setScreen} 的话，玩家在对手回合里关掉界面去做别的事，
+     *       会被空时点反复拽回来，而那一问根本不需要他。</li>
+     *   <li>必发提示条已经不画了（D68）。不画的东西不许当「有东西要看」。</li>
+     * </ul>
+     *
+     * @param unansweredQuestion 这一帧有询问，而且没有被时点略过自动回掉，玩家还没交答案
+     * @param noticeVisible      必发提示这一帧会不会画出来。现在恒为 false
+     */
+    public static boolean needsAttention(boolean unansweredQuestion, boolean noticeVisible) {
+        return unansweredQuestion || noticeVisible;
+    }
+
+    /**
+     * 状态条在「没有问句可画」时该说哪一句。
+     *
+     * <p>以前这两种都写「等待服务器…」，玩家分不清是自己已经交了答案，
+     * 还是轮到对方了——2026-10-05 那次被误当成「卡住了」的就是这一句。
+     */
+    public enum StatusLine {
+        /** 没有待答的询问：对方（或引擎）在推进。 */
+        OPPONENT,
+        /** 问还在，答案已经交出去，等下一帧。 */
+        SUBMITTED,
+        /** 问还在，还没交：状态条画问句本身，不走这两句兜底。 */
+        ASKING
+    }
+
+    /**
+     * @param hasQuestion 这一帧带没带询问（被自动回掉的那一问不算，调用方不会把它留下）
+     * @param submitted   当前这一问的答案交出去了没有
+     */
+    public static StatusLine statusLine(boolean hasQuestion, boolean submitted) {
+        if (!hasQuestion) {
+            // 询问已经清掉时，本地那个「已提交」标记不再有意义：
+            // 下一帧要么是对方在走，要么是引擎在推进。说「已提交」会让人还在等自己那一问。
+            return StatusLine.OPPONENT;
+        }
+        return submitted ? StatusLine.SUBMITTED : StatusLine.ASKING;
+    }
+
+    /**
+     * @param everShown   当前这个界面推给玩家看过没有
+     * @param hasQuestion 这一帧带没带需要玩家作答的询问（先过 {@link #needsAttention}）
+     * @param isCurrent   这个界面是不是已经是当前屏了
+     */
     public static boolean shouldShow(boolean everShown, boolean hasQuestion, boolean isCurrent) {
         if (isCurrent) {
             // 已经在他眼前了。重复 setScreen 会把界面重建一次，

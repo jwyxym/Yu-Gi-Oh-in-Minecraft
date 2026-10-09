@@ -27,10 +27,8 @@ import java.util.Set;
  * 对局界面：牌桌 + 当前询问。
  *
  * <h2>交互是「点牌桌」，不是「点按钮」</h2>
- * 选卡、选格子一律<b>直接点那张卡、那个格子</b>：左键选择/取消选择，
- * 右键确认（多选）或取消。这与 ygo 客户端和 YDM 一致——YDM 的对局界面
- * 除了聊天框几乎没有按钮，交互全在 {@code ZoneWidget} 上，
- * 点「动作源」再点「动作目标」，第二次点击本身就是确认。
+ * 选卡、选格子一律<b>直接点那张卡、那个格子</b>：左键选择/取消选择。
+ * 确认与取消是右下角两颗独立的键（D62）；<b>右键不再当作答</b>，只用来收起已经打开的窗口。
  *
  * <p>只有在询问<b>没有空间落点</b>时才退化成列表：是/否、发动哪个效果、
  * 攻击还是守备、宣言种族属性。这些本来就没有卡可以点，官方客户端也是弹一个小窗。
@@ -51,8 +49,8 @@ import java.util.Set;
  * <h2>本地玩家不一定在下面</h2>
  * 界面底部恒为「我」、顶部恒为「对手」，但座位号不由位置决定：
  * 我可能是 P0 也可能是 P1。原先无条件把 {@code player0} 画在下面，
- * 一旦本地玩家是 P1，自己的卡就会出现在对手那半边。这里按
- * {@link DuelQuestion#player()} 定座位，再取对应的一方来画。
+ * 一旦本地玩家是 P1，自己的卡就会出现在对手那半边。座位跟着每一帧走
+ * （{@link ClientSeat#of}，D61）：没有询问的帧里从询问推座位只能默认 0 号席。
  *
  * <h2>格子数按【现行大师规则】</h2>
  * 怪兽区 5、魔陷区 5（<b>灵摆区已并入 szone 0/4</b>，见
@@ -263,17 +261,19 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
      * {@code DuelQuestion} 与 {@code Option} 都是 record，{@code equals} 是逐字段比较，
      * 所以这里直接用内容相等来判断「还是不是同一题」。
      */
-    public void update(DuelBoard board, DuelQuestion question, int viewerSeat, ChainNotice notice) {
-        update(board, question, viewerSeat, notice, null);
+    public boolean update(DuelBoard board, DuelQuestion question, int viewerSeat, ChainNotice notice) {
+        return update(board, question, viewerSeat, notice, null);
     }
 
     /**
      * 服务器推来新状态时调用，收局那一帧还带着结果。
      *
      * @param result 收局结果；非 null 表示这一局结束了，界面切到收局画面
+     * @return 这一帧值不值得把关掉的界面重新推到眼前
+     *         （{@link DuelScreenFlow#needsAttention}）。收局恒为 true。
      */
-    public void update(DuelBoard board, DuelQuestion question, int viewerSeat, ChainNotice notice,
-                       DuelResult result) {
+    public boolean update(DuelBoard board, DuelQuestion question, int viewerSeat, ChainNotice notice,
+                          DuelResult result) {
         if (result != null) {
             // 收局帧。牌桌一般是 null（服务端只带结果），这时【保留】上一帧：
             // 收局画面的背景就是玩家刚打完的那一屏，清掉等于把他这一局当场抹掉。
@@ -293,7 +293,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
             this.extraListOpen = false;
             this.browse = null;
             rebuild();
-            return;
+            return true;
         }
         // 收到「没有结果」的帧 = 这一局还在打（服务端只有收尾那一帧会带结果，
         // 见 DuelRoom.finish），所以上一局的收局画面到这里就必须撤掉。
@@ -330,7 +330,10 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
                 // 界面保持原样即可——服务端没答完就不会推新帧，所以正在显示的那一问
                 // 必定已经答过、点不动了；这里也就不必再写「等待服务器…」。
                 sendQuiet(question, ci);
-                return;
+                // 不把这一问摆上界面，也不把它算成「值得把界面拽回来」：
+                // 玩家在对手回合关掉界面去做别的事时，每一个空时点都会把他拽回来，
+                // 而那一问根本不需要他。
+                return false;
             }
             // 没有取消项＝必发连锁，不能替玩家放弃，往下照常摆出来。
         }
@@ -349,16 +352,15 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
         // 必发提示的生命周期走 DuelScreenFlow.nextNotice（纯判据，可离线断言）：
         // 来了新的覆盖旧的；没来的话停在同一问上就留着，换了询问就收掉。
         // 玩家一作答也会收掉（见 dispatch）。它<b>只影响本地显示</b>，不产生任何应答。
-        boolean noticeChanged = !java.util.Objects.equals(this.notice, notice);
+        // 必发提示不画（D68），所以它变不变都不重建：重建会清掉控件，
+        // 而画面上什么都没多出来。线格式里那截先留着，等下一次升版本再删。
         this.notice = DuelScreenFlow.nextNotice(this.notice, notice, same);
         if (!same || reAsked || staleResult) {
             submitted = false;
             rebuild();
-        } else if (noticeChanged) {
-            // 只是来了一条提示：不能走上面那条路——那会把 submitted 放开，
-            // 让已经答完的询问又能再答一次。这里只重摆一次控件。
-            rebuild();
         }
+        // 提示恒不算「值得看」（needsAttention 的第二个参数）。不画的东西不拽界面。
+        return DuelScreenFlow.needsAttention(this.question != null && !submitted, false);
     }
 
     private FieldLayout field() {
@@ -1700,8 +1702,9 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
      *
      * <p>位置常量直接用内核的值（{@code MZONE = 0x04}、{@code SZONE = 0x08}）：
      * 这里只是为了一张图分个类，不值得为此把 {@code Msg.Location} 引进来。
-     * 场地/灵摆区是魔陷区的序号 5、6（{@code playerop.cpp} 与 {@code FieldLayout}
-     * 都按这个分），它们跟普通魔陷区形状不同，单独给一张。
+     * 场地区是魔陷区序号 5（{@code field.cpp:564}）。序号 6/7 是旧规则余位，布局不画，
+     * 所以 {@code sequence >= 5} 实际只落到场地区。灵摆区是 {@code szone 0} 与 {@code 4}
+     * （{@code field.cpp:499-512}），跟普通魔陷区同一张材质。
      */
     private static String zoneTexture(int location, int sequence) {
         if (location == 0x04) {
@@ -2407,12 +2410,16 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
      * 拼成一个字符串之后就再也没法分别上色，只能整体一个样式。
      */
     private String titleBody() {
-        if (question == null) {
+        // 没有问句时的两句等待必须分开：都写成「等待服务器…」时，
+        // 玩家分不清「轮到对手了」和「我的答案发出去了」。判据在 DuelScreenFlow.statusLine。
+        DuelScreenFlow.StatusLine line = DuelScreenFlow.statusLine(question != null, submitted);
+        if (line == DuelScreenFlow.StatusLine.OPPONENT) {
             return DuelText.s(DuelText.STATUS_WAITING);
         }
-        if (submitted) {
+        if (line == DuelScreenFlow.StatusLine.SUBMITTED) {
             return DuelText.s(DuelText.STATUS_SUBMITTED);
         }
+        // ASKING：往下画问句本身。
         DuelQuestion.Title t = question.titleText();
         if (!t.fromLang()) {
             return question.title();

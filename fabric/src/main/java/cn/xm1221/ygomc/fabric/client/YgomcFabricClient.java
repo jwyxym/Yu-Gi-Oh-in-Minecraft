@@ -42,6 +42,7 @@ public final class YgomcFabricClient implements ClientModInitializer {
             // 在这里「消费」掉这次交互会让服务端看不到它，以后加服务端逻辑时会莫名其妙失效。
             return InteractionResultHolder.pass(player.getItemInHand(hand));
         });
-        // TODO(M2): 注册决斗相关的客户端界面与网络接收端。
+        // 对局界面与离开世界时的清场。NeoForge 侧在客户端 setup 里调同一句。
+        DuelClient.init();
     }
 }

@@ -130,8 +130,8 @@
   "ygomc.duel.hand.mine": "我方 手牌 %d",
   "ygomc.duel.hand.opponent": "对手 手牌 %d",
 
-  "ygomc.duel.status.waiting": "等待服务器…",
-  "ygomc.duel.status.submitted": "已提交，等待对手…",
+  "ygomc.duel.status.waiting": "对手操作中…",
+  "ygomc.duel.status.submitted": "已提交，等待服务器…",
   "ygomc.duel.status.no_board": "还没有牌桌数据",
   "ygomc.duel.status.chain": "连锁 %s",
   "ygomc.duel.skip.ignore": "忽略时点",
