@@ -5,6 +5,7 @@ import cn.xm1221.ygomc.common.card.CardItem;
 import cn.xm1221.ygomc.common.collection.CardBinderItem;
 import cn.xm1221.ygomc.common.deck.DeckBoxItem;
 import cn.xm1221.ygomc.common.duel.DuelDiskItem;
+import cn.xm1221.ygomc.common.pack.BoosterBoxItem;
 import cn.xm1221.ygomc.common.pack.CardPackItem;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
@@ -79,10 +80,15 @@ public final class YgomcItems {
 
     // ---------------------------------------------------------------- 开包
 
-    /** 卡包：右键开封。 */
+    /** 卡包：右键开封。定义相同的包可以堆叠。 */
     public static final RegistrySupplier<CardPackItem> CARD_PACK =
             ITEMS.register("card_pack",
-                    () -> new CardPackItem(new Item.Properties().stacksTo(1)));
+                    () -> new CardPackItem(new Item.Properties().stacksTo(16)));
+
+    /** 盒装卡包：右键拆成若干包。 */
+    public static final RegistrySupplier<BoosterBoxItem> BOOSTER_BOX =
+            ITEMS.register("booster_box",
+                    () -> new BoosterBoxItem(new Item.Properties().stacksTo(1)));
 
     // ---------------------------------------------------------------- 收藏
 

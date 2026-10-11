@@ -1,0 +1,15 @@
+{
+  "set": "ygomc:demo",
+  "display": {
+    "name": { "translate": "booster.ygomc.demo" },
+    "color": "#3C5AA0",
+    "rarity": "uncommon"
+  },
+  "pulls": [
+    { "id": "rare_hit", "weight": 8, "slots": [ { "count": 4, "rarity": "common" }, { "count": 1, "rarity": "rare" } ] },
+    { "id": "ultra_hit", "weight": 2, "slots": [ { "count": 4, "rarity": "common" }, { "count": 1, "rarity": "ultra" } ] },
+    { "id": "secret_hit", "weight": 1, "slots": [ { "count": 4, "rarity": "common" }, { "count": 1, "rarity": "secret" } ] }
+  ],
+  "duplicates": "avoid_in_pack",
+  "fallback": ["secret", "ultra", "rare", "common"]
+}

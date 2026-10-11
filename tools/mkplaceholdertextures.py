@@ -31,6 +31,8 @@ ITEM_DIR = os.path.join(RES, "textures", "item")
 BLOCK_DIR = os.path.join(RES, "textures", "block")
 DUEL_DIR = os.path.join(RES, "textures", "gui", "duel")
 COLLECTION_DIR = os.path.join(RES, "textures", "gui", "collection")
+PACK_DIR = os.path.join(RES, "textures", "gui", "pack")
+FOIL_DIR = os.path.join(RES, "textures", "card", "foil")
 
 S = 16
 SS = 4          # GUI 超采样倍数
@@ -214,6 +216,16 @@ def card_pack():
             p = img.getpixel((x, y))
             if (x + y) in (14, 15) and p[:3] in ((126, 160, 214), (78, 104, 160)):
                 img.putpixel((x, y), (214, 232, 255, 255))
+    return img
+
+
+def band_from(source, letters):
+    """品牌条单独一层，白像素会被染成 display.color，其余全透。"""
+    img = Image.new("RGBA", (S, S), (0, 0, 0, 0))
+    for y, row in enumerate(source):
+        for x, ch in enumerate(row):
+            if ch in letters:
+                img.putpixel((x, y), (255, 255, 255, 255))
     return img
 
 
@@ -515,6 +527,62 @@ def collection_bar():
     return img
 
 
+def pack_bg():
+    """开包界面底。16×16 平铺，周期 8 的暗格。"""
+    rnd = random.Random(17)
+    img = Image.new("RGBA", (S, S))
+    for y in range(S):
+        for x in range(S):
+            f = 0.9 + rnd.random() * 0.08
+            if (x + y) % 8 == 0:
+                f += 0.16
+            img.putpixel((x, y), shade((16, 18, 32), f) + (255,))
+    return img
+
+
+def pack_slot():
+    """开包卡槽，画在卡背或卡面后面。"""
+    w, h = 32, 48
+    img = Image.new("RGBA", (w * SS, h * SS), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rounded_rectangle([0, 0, w * SS - 1, h * SS - 1], radius=3 * SS, fill=(8, 10, 20, 210))
+    d.rounded_rectangle([0, 0, w * SS - 1, h * SS - 1], radius=3 * SS, outline=(210, 176, 84, 255), width=SS)
+    return img.resize((w, h), Image.BOX)
+
+
+def foil_holo():
+    """全息层：斜向色带，半透明，给加法混合用。"""
+    w, h = 200, 290
+    img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    for y in range(h):
+        for x in range(w):
+            band = (x + y) % 24
+            if band < 8:
+                img.putpixel((x, y), (255, 255, 255, 90))
+    return img
+
+
+def foil_sparkle():
+    """星点，盖在极稀上。"""
+    rnd = random.Random(19)
+    img = Image.new("RGBA", (200, 290), (0, 0, 0, 0))
+    for _ in range(80):
+        x, y = rnd.randrange(8, 192), rnd.randrange(8, 282)
+        img.putpixel((x, y), (255, 255, 255, 220))
+        if x + 1 < 200:
+            img.putpixel((x + 1, y), (255, 244, 180, 140))
+    return img
+
+
+def foil_emboss():
+    """秘稀的内框，不盖住卡图中间。"""
+    img = Image.new("RGBA", (200, 290), (0, 0, 0, 0))
+    d = ImageDraw.Draw(img)
+    d.rectangle([6, 6, 193, 283], outline=(255, 220, 120, 210), width=3)
+    d.rectangle([12, 12, 187, 277], outline=(255, 255, 255, 90), width=1)
+    return img
+
+
 # ------------------------------------------------------------------ 入口
 
 def main():
@@ -525,7 +593,43 @@ def main():
             "deck_box": deck_box(),
             "ender_deck_box": ender_deck_box(),
             "card_pack": card_pack(),
+            "card_pack_band": band_from([
+                "...sSsSsSsSsS...",
+                "...kkkkkkkkkk...",
+                "...kRRRRRRRRk...",
+                "...krrrrrrrrk...",
+                "...kFFFFFFFfk...",
+                "...kFggggggfk...",
+                "...kFgAAAAgfk...",
+                "...kFgAeeAgfk...",
+                "...kFgAeeAgfk...",
+                "...kFgAAAAgfk...",
+                "...kFggggggfk...",
+                "...kFFFFFFFfk...",
+                "...kfffffffFk...",
+                "...kkkkkkkkkk...",
+                "...sSsSsSsSsS...",
+                "................",
+            ], "Rr"),
             "booster_box": booster_box(),
+            "booster_box_band": band_from([
+                "................",
+                "..kkkkkkkkkkkk..",
+                "..kLLLLLLLLLLk..",
+                "..kLlllgglllLk..",
+                "..kkkkkkkkkkkk..",
+                "..kPpQqPpQqPpk..",
+                "..kpoqzpoqzpok..",
+                "..kkkkkkkkkkkk..",
+                "..kRRRRRRRRRRk..",
+                "..krrrrrrrrrrk..",
+                "..kFFFFFFFFFfk..",
+                "..kFFFgggFFFfk..",
+                "..kFFFgegFFFfk..",
+                "..kFFFgggFFFfk..",
+                "..kffffffffffk..",
+                "..kkkkkkkkkkkk..",
+            ], "Rr"),
             "card_binder": card_binder(),
             "creative_binder": creative_binder(),
             "ender_binder": ender_binder(),
@@ -546,6 +650,15 @@ def main():
             "panel": collection_panel(),
             "slot": collection_slot(),
             "bar": collection_bar(),
+        }),
+        (PACK_DIR, {
+            "bg": pack_bg(),
+            "card_slot": pack_slot(),
+        }),
+        (FOIL_DIR, {
+            "holo": foil_holo(),
+            "sparkle": foil_sparkle(),
+            "emboss": foil_emboss(),
         }),
     ]
     for directory, images in outputs:

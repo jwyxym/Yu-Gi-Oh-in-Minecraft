@@ -5,8 +5,13 @@ import cn.xm1221.ygomc.common.collection.BinderContents;
 import cn.xm1221.ygomc.common.collection.DeckCards;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
+import cn.xm1221.ygomc.common.pack.data.BoosterBoxDef;
+import cn.xm1221.ygomc.common.pack.data.BoosterDef;
+import cn.xm1221.ygomc.common.pack.data.BoxLot;
+import net.minecraft.core.Holder;
 import net.minecraft.core.component.DataComponentType;
 import net.minecraft.core.registries.Registries;
+import net.minecraft.network.codec.ByteBufCodecs;
 import net.minecraft.resources.ResourceLocation;
 
 /**
@@ -54,6 +59,32 @@ public final class CardComponents {
      * 而不是卡包里已抽出的内容——抽出结果由开包逻辑按权重实时决定（M3），
      * 不需要提前写进物品。因此这个组件在卡包被消耗前是<b>只读</b>的。
      */
+    /**
+     * 卡包定义：引用注册表里的一种包，或内联一份一次性定义。
+     * 组件里只有「怎么抽」，没有抽出来的结果。
+     */
+    public static final RegistrySupplier<DataComponentType<Holder<BoosterDef>>> BOOSTER =
+            COMPONENTS.register("booster", () -> DataComponentType.<Holder<BoosterDef>>builder()
+                    .persistent(BoosterDef.HOLDER_CODEC)
+                    .networkSynchronized(ByteBufCodecs.fromCodecWithRegistries(BoosterDef.HOLDER_CODEC))
+                    .build());
+
+    /** 盒装卡包的定义，同样是引用或内联。 */
+    public static final RegistrySupplier<DataComponentType<Holder<BoosterBoxDef>>> BOOSTER_BOX =
+            COMPONENTS.register("booster_box", () -> DataComponentType.<Holder<BoosterBoxDef>>builder()
+                    .persistent(BoosterBoxDef.HOLDER_CODEC)
+                    .networkSynchronized(ByteBufCodecs.fromCodecWithRegistries(BoosterBoxDef.HOLDER_CODEC))
+                    .build());
+
+    /**
+     * 从配好的盒里拆出的一包的批次。没有抽法，抽法开封时重算。
+     */
+    public static final RegistrySupplier<DataComponentType<BoxLot>> BOX_LOT =
+            COMPONENTS.register("box_lot", () -> DataComponentType.<BoxLot>builder()
+                    .persistent(BoxLot.CODEC)
+                    .networkSynchronized(BoxLot.STREAM_CODEC)
+                    .build());
+
     public static final RegistrySupplier<DataComponentType<ResourceLocation>> PACK_ID =
             COMPONENTS.register("pack_id", () -> DataComponentType.<ResourceLocation>builder()
                     .persistent(ResourceLocation.CODEC)

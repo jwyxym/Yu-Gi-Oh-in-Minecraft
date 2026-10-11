@@ -1,0 +1,11 @@
+{
+  "booster": "ygomc:demo",
+  "packs": 8,
+  "mode": "collated",
+  "collation": { "secret_hit": 1, "ultra_hit": 2 },
+  "display": {
+    "name": { "translate": "booster_box.ygomc.demo" },
+    "color": "#3C5AA0",
+    "rarity": "rare"
+  }
+}

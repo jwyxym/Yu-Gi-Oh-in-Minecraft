@@ -94,6 +94,7 @@ public final class YgomcCommand {
     }
 
     private static void register(CommandDispatcher<CommandSourceStack> dispatcher) {
+        PackCommands.register(dispatcher);
         dispatcher.register(Commands.literal("ygomc")
                 .then(Commands.literal("status").executes(ctx -> {
                     ctx.getSource().sendSuccess(() -> Component.literal(statusText()), false);

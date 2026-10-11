@@ -1,0 +1,13 @@
+{
+  "name": { "translate": "card_set.ygomc.demo" },
+  "code": "DEMO",
+  "cards": {
+    "common": [53129443, 38033121, 4031928],
+    "rare": [46986414],
+    "ultra": [89631139],
+    "secret": [89631139]
+  },
+  "prints": [
+    { "code": 89631139, "rarity": "secret", "variant": 1, "weight": 1 }
+  ]
+}

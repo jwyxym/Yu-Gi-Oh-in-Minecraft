@@ -1,7 +1,14 @@
 package cn.xm1221.ygomc.fabric;
 
 import cn.xm1221.ygomc.common.Ygomc;
+import cn.xm1221.ygomc.common.pack.data.BoosterBoxDef;
+import cn.xm1221.ygomc.common.pack.data.BoosterDef;
+import cn.xm1221.ygomc.common.pack.data.CardSetDef;
+import cn.xm1221.ygomc.common.pack.data.PackCatalog;
+import cn.xm1221.ygomc.common.pack.data.PackRegistries;
 import net.fabricmc.api.ModInitializer;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.registry.DynamicRegistries;
 
 /**
  * Fabric 入口。
@@ -18,6 +25,16 @@ public final class YgomcFabric implements ModInitializer {
 
     @Override
     public void onInitialize() {
+        // 动态注册表要在数据包加载前登记。网络编解码用同一份 Codec，客户端才能看到包名和概率。
+        DynamicRegistries.registerSynced(PackRegistries.CARD_SET, CardSetDef.CODEC, CardSetDef.CODEC);
+        DynamicRegistries.registerSynced(PackRegistries.BOOSTER, BoosterDef.DIRECT_CODEC, BoosterDef.DIRECT_CODEC);
+        DynamicRegistries.registerSynced(PackRegistries.BOOSTER_BOX, BoosterBoxDef.DIRECT_CODEC, BoosterBoxDef.DIRECT_CODEC);
+        ServerLifecycleEvents.SERVER_STARTED.register(server -> PackCatalog.validate(server.registryAccess()));
+        ServerLifecycleEvents.END_DATA_PACK_RELOAD.register((server, manager, success) -> {
+            if (success) {
+                PackCatalog.validate(server.registryAccess());
+            }
+        });
         // Fabric 的这个回调触发时，注册表已经可以安全写入了。
         Ygomc.init();
     }

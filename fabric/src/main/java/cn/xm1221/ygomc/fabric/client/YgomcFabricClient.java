@@ -2,7 +2,11 @@ package cn.xm1221.ygomc.fabric.client;
 
 import cn.xm1221.ygomc.common.client.CollectionClient;
 import cn.xm1221.ygomc.common.client.DuelClient;
+import cn.xm1221.ygomc.common.client.PackClient;
+import cn.xm1221.ygomc.common.client.PackItemTint;
+import cn.xm1221.ygomc.common.registry.YgomcItems;
 import net.fabricmc.api.ClientModInitializer;
+import net.fabricmc.fabric.api.client.rendering.v1.ColorProviderRegistry;
 
 /**
  * Fabric 客户端入口。
@@ -30,5 +34,8 @@ public final class YgomcFabricClient implements ClientModInitializer {
         // 组卡界面同理：包的接收器只能在客户端登记。
         DuelClient.init();
         CollectionClient.init();
+        PackClient.init();
+        ColorProviderRegistry.ITEM.register(PackItemTint.COLOR,
+                YgomcItems.CARD_PACK.get(), YgomcItems.BOOSTER_BOX.get());
     }
 }

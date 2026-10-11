@@ -1,14 +1,25 @@
 package cn.xm1221.ygomc.common.pack;
 
 import cn.xm1221.ygomc.common.card.CardComponents;
+import cn.xm1221.ygomc.common.client.PackTips;
+import cn.xm1221.ygomc.common.pack.data.BoosterDef;
+import cn.xm1221.ygomc.common.pack.data.PackRegistries;
+import cn.xm1221.ygomc.common.pack.model.Pull;
+import net.minecraft.core.Holder;
+import net.minecraft.core.RegistryAccess;
 import net.minecraft.core.component.DataComponentType;
+import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
+
+import java.util.List;
 
 /**
  * 卡包：右键开封，按权重抽若干张卡。
@@ -34,24 +45,85 @@ public class CardPackItem extends Item {
      *
      * @return 卡包种类键；该 stack 不带 {@code pack_id} 时返回 {@code null}
      */
+    /**
+     * 这一包怎么抽。优先读 {@code ygomc:booster}；只有旧的 {@code pack_id} 时按同名 id 查注册表。
+     *
+     * @return 找不到定义时返回 {@code null}，调用方不应当消耗这包
+     */
+    public static Holder<BoosterDef> resolve(ItemStack stack, RegistryAccess access) {
+        DataComponentType<Holder<BoosterDef>> type = CardComponents.BOOSTER.get();
+        Holder<BoosterDef> direct = stack.get(type);
+        if (direct != null) {
+            return direct;
+        }
+        ResourceLocation id = packId(stack);
+        if (id == null) {
+            return null;
+        }
+        return access.registry(PackRegistries.BOOSTER)
+                .flatMap(registry -> registry.getHolder(id))
+                .orElse(null);
+    }
+
     public static ResourceLocation packId(ItemStack stack) {
         DataComponentType<ResourceLocation> type = CardComponents.PACK_ID.get();
         return stack.get(type);
     }
 
     /**
-     * 右键开封。
-     *
-     * <p>返回值类型必须是 {@link InteractionResultHolder} 而不是
-     * {@link net.minecraft.world.InteractionResult}——这是 1.21 里
-     * {@code Item#use} 的签名（它要把「用完之后手上这格变成什么」一并带回去）。
-     * 本轮先留空实现：既不消耗卡包也不生成卡，
-     * 避免半成品的开包逻辑把玩家的包吃掉。
+     * 右键开一包。潜行把这一叠都开掉。
+     * 客户端只确认动作，扣包和发牌都在服务端。
      */
-    // TODO(M3): 服务端按 pack_id 查 Distribution -> 抽样 -> 生成带 CardRef 的 CardItem ->
-    //           放入玩家背包或丢出；再扣掉一个卡包。用 level 的 RandomSource 复用原版随机源。
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
-        return super.use(level, player, hand);
+        ItemStack stack = player.getItemInHand(hand);
+        if (level.isClientSide || !(player instanceof ServerPlayer serverPlayer)) {
+            return InteractionResultHolder.success(stack);
+        }
+        int times = player.isShiftKeyDown() ? stack.getCount() : 1;
+        int opened = 0;
+        for (int i = 0; i < times; i++) {
+            if (stack.isEmpty() || !PackOpening.openPack(serverPlayer, stack, times == 1)) {
+                break;
+            }
+            opened++;
+        }
+        if (times > 1 && opened > 0) {
+            serverPlayer.displayClientMessage(Component.translatable("ygomc.pack.opened_many", opened), true);
+        }
+        return opened > 0 ? InteractionResultHolder.success(stack) : InteractionResultHolder.fail(stack);
+    }
+
+    @Override
+    public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
+        Holder<BoosterDef> holder = stack.get(CardComponents.BOOSTER.get());
+        if ((holder == null || !holder.isBound()) && context.registries() instanceof RegistryAccess access) {
+            holder = resolve(stack, access);
+        }
+        if (holder == null || !holder.isBound()) {
+            return;
+        }
+        BoosterDef def = holder.value();
+        int min = Integer.MAX_VALUE;
+        int max = 0;
+        for (Pull pull : def.pulls()) {
+            min = Math.min(min, pull.cards());
+            max = Math.max(max, pull.cards());
+        }
+        if (min == max) {
+            tooltip.add(Component.translatable("ygomc.pack.cards", min));
+        } else {
+            tooltip.add(Component.translatable("ygomc.pack.cards_range", min, max));
+        }
+        if (def.set().isBound()) {
+            tooltip.add(def.set().value().name());
+            def.set().value().release().ifPresent(date ->
+                    tooltip.add(Component.translatable("ygomc.pack.release", date)));
+        }
+        if (PackTips.shiftDown.getAsBoolean()) {
+            tooltip.addAll(PackOpening.oddsLines(def.mechanics()));
+        } else {
+            tooltip.add(Component.translatable("ygomc.pack.shift"));
+        }
     }
 }

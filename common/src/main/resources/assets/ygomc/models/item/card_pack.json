@@ -1,6 +1,7 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "ygomc:item/card_pack"
+    "layer0": "ygomc:item/card_pack",
+    "layer1": "ygomc:item/card_pack_band"
   }
 }

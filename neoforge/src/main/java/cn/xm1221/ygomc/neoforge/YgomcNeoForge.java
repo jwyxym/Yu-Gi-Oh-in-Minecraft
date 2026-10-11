@@ -1,7 +1,16 @@
 package cn.xm1221.ygomc.neoforge;
 
 import cn.xm1221.ygomc.common.Ygomc;
+import cn.xm1221.ygomc.common.pack.data.BoosterBoxDef;
+import cn.xm1221.ygomc.common.pack.data.BoosterDef;
+import cn.xm1221.ygomc.common.pack.data.CardSetDef;
+import cn.xm1221.ygomc.common.pack.data.PackCatalog;
+import cn.xm1221.ygomc.common.pack.data.PackRegistries;
+import net.neoforged.bus.api.IEventBus;
 import net.neoforged.fml.common.Mod;
+import net.neoforged.neoforge.common.NeoForge;
+import net.neoforged.neoforge.event.AddReloadListenerEvent;
+import net.neoforged.neoforge.registries.DataPackRegistryEvent;
 
 /**
  * NeoForge 入口。
@@ -32,9 +41,21 @@ import net.neoforged.fml.common.Mod;
 @Mod(Ygomc.MOD_ID)
 public final class YgomcNeoForge {
 
-    public YgomcNeoForge() {
+    public YgomcNeoForge(IEventBus modBus) {
+        modBus.addListener(YgomcNeoForge::registerPackRegistries);
+        NeoForge.EVENT_BUS.addListener(YgomcNeoForge::validatePacks);
         // NeoForge 在 mod 构造阶段就已经允许通过 DeferredRegister 登记内容
         // （真正的实例化发生在 RegisterEvent 中）。
         Ygomc.init();
+    }
+
+    private static void registerPackRegistries(DataPackRegistryEvent.NewRegistry event) {
+        event.dataPackRegistry(PackRegistries.CARD_SET, CardSetDef.CODEC, CardSetDef.CODEC);
+        event.dataPackRegistry(PackRegistries.BOOSTER, BoosterDef.DIRECT_CODEC, BoosterDef.DIRECT_CODEC);
+        event.dataPackRegistry(PackRegistries.BOOSTER_BOX, BoosterBoxDef.DIRECT_CODEC, BoosterBoxDef.DIRECT_CODEC);
+    }
+
+    private static void validatePacks(AddReloadListenerEvent event) {
+        PackCatalog.validate(event.getRegistryAccess());
     }
 }
