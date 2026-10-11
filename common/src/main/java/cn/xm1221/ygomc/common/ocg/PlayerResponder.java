@@ -84,6 +84,13 @@ public final class PlayerResponder implements Responder {
     /** 超时后才允许替玩家作答，用来把「提醒」与「代答」分成两段（D22）。 */
     private java.util.concurrent.atomic.AtomicLong timeoutSeq =
             new java.util.concurrent.atomic.AtomicLong();
+    /**
+     * 当前这道题的题号。每装入一道真人询问就加一，和超时定时器用的是同一个序号：
+     * 答错题号必须被拒，否则上一题的迟到应答会填到下一题上。
+     */
+    private long pendingSeq;
+    /** 这道题装入的时刻，用来算还剩几秒。0 表示没有在等。 */
+    private long askedAt;
 
     /**
      * 共享的守护调度器。
@@ -209,6 +216,8 @@ public final class PlayerResponder implements Responder {
             // 超时判负必须按【这一道题】挂号：拿一个自增序号把它绑到当前问题，
             // 否则玩家答完 A 题、引擎又问 B 题时，A 的定时器醒来会把 B 判负。
             long seq = timeoutSeq.incrementAndGet();
+            pendingSeq = seq;
+            askedAt = System.currentTimeMillis();
             cancelTimers();
             if (timeoutSeconds > 0) {
                 timeoutTask = TIMERS.schedule(() -> fireTimeout(seq, question),
@@ -330,6 +339,27 @@ public final class PlayerResponder implements Responder {
         }
     }
 
+    /** 正在等的那道题的题号；没有待答时是 0。 */
+    public int pendingQuestionId() {
+        synchronized (lock) {
+            return pending != null && !answered ? (int) pendingSeq : 0;
+        }
+    }
+
+    /**
+     * 这道题还剩几秒。没有待答、或不限时时是 -1。
+     * 从装入时刻算，不在每次发包时重新记满。
+     */
+    public int secondsLeft() {
+        synchronized (lock) {
+            if (pending == null || answered || timeoutSeconds <= 0 || askedAt == 0) {
+                return -1;
+            }
+            long elapsed = (System.currentTimeMillis() - askedAt) / 1000L;
+            return (int) Math.max(0, timeoutSeconds - elapsed);
+        }
+    }
+
     /**
      * 玩家侧：用 {@link DuelQuestion#options()} 里的下标作答。
      *
@@ -365,11 +395,23 @@ public final class PlayerResponder implements Responder {
      * 这是<b>唯一</b>的防重复点机制。
      */
     public boolean submit(Response r) {
+        return submit(0, r, false);
+    }
+
+    /**
+     * 客户端来的应答。题号必须是 {@link #pendingQuestionId()}，否则拒掉并计数。
+     * 托管和超时路径走 {@link #submit(Response)}，不带题号。
+     */
+    public boolean submit(int questionId, Response r) {
+        return submit(questionId, r, true);
+    }
+
+    private boolean submit(int questionId, Response r, boolean checkId) {
         if (r == null) {
             return false;
         }
         synchronized (lock) {
-            if (pending == null || answered) {
+            if (pending == null || answered || (checkId && questionId != (int) pendingSeq)) {
                 rejectedSubmits++;
                 return false;
             }

@@ -1,6 +1,8 @@
 package cn.xm1221.ygomc.common.card;
 
 import cn.xm1221.ygomc.common.Ygomc;
+import cn.xm1221.ygomc.common.collection.BinderContents;
+import cn.xm1221.ygomc.common.collection.DeckCards;
 import dev.architectury.registry.registries.DeferredRegister;
 import dev.architectury.registry.registries.RegistrySupplier;
 import net.minecraft.core.component.DataComponentType;
@@ -28,7 +30,7 @@ public final class CardComponents {
     private CardComponents() {
     }
 
-    /** 组件注册器。三个组件都挂在 {@code ygomc} 命名空间下。 */
+    /** 组件注册器。组件都挂在 {@code ygomc} 命名空间下。 */
     public static final DeferredRegister<DataComponentType<?>> COMPONENTS =
             DeferredRegister.create(Ygomc.MOD_ID, Registries.DATA_COMPONENT_TYPE);
 
@@ -70,6 +72,26 @@ public final class CardComponents {
             COMPONENTS.register("deck_data", () -> DataComponentType.<DeckData>builder()
                     .persistent(DeckData.CODEC)
                     .networkSynchronized(DeckData.STREAM_CODEC)
+                    .build());
+
+    /**
+     * 卡组盒里的实体卡（含稀有度）。{@link DeckData} 仍是卡号清单，给决斗用；
+     * 取卡要原样退回，所以稀有度另存这一份，写入时两边一起更新。
+     */
+    public static final RegistrySupplier<DataComponentType<DeckCards>> DECK_CARDS =
+            COMPONENTS.register("deck_cards", () -> DataComponentType.<DeckCards>builder()
+                    .persistent(DeckCards.CODEC)
+                    .networkSynchronized(DeckCards.STREAM_CODEC)
+                    .build());
+
+    /**
+     * 卡册里的卡。没有张数上限。末影卡册和创造卡册不使用这个组件：
+     * 前者跟玩家走，后者的内容就是整份卡池。
+     */
+    public static final RegistrySupplier<DataComponentType<BinderContents>> BINDER_CONTENTS =
+            COMPONENTS.register("binder_contents", () -> DataComponentType.<BinderContents>builder()
+                    .persistent(BinderContents.CODEC)
+                    .networkSynchronized(BinderContents.STREAM_CODEC)
                     .build());
 
     /**

@@ -217,6 +217,8 @@ public final class DuelText {
     /** 答案已经交出去，这一问还挂着，等下一帧。 */
     public static final String STATUS_SUBMITTED = "ygomc.duel.status.submitted";
     public static final String STATUS_NO_BOARD = "ygomc.duel.status.no_board";
+    /** {@code %d} 剩余秒数。 */
+    public static final String STATUS_CLOCK = "ygomc.duel.status.clock";
 
     /**
      * 连锁数小牌子：「连锁 %s」。

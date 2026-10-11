@@ -21,6 +21,7 @@ REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 RES = os.path.join(REPO_ROOT, "common", "src", "main", "resources", "assets", "ygomc")
 ITEM_DIR = os.path.join(RES, "textures", "item")
 BLOCK_DIR = os.path.join(RES, "textures", "block")
+GUI_DIR = os.path.join(RES, "textures", "gui", "collection")
 
 S = 16          # 原版贴图惯例尺寸
 T = (0, 0, 0, 0)
@@ -121,6 +122,61 @@ def duel_table():
     return img
 
 
+def creative_binder():
+    """创造卡册：紫封面，表示整份卡池。"""
+    img = new()
+    d = ImageDraw.Draw(img)
+    d.rectangle([1, 1, 14, 14], fill=(92, 48, 150, 255), outline=(48, 22, 88, 255))
+    d.rectangle([4, 1, 14, 14], fill=(128, 72, 196, 255))
+    d.rectangle([1, 1, 3, 14], fill=(64, 32, 110, 255))
+    for y in (4, 8, 12):
+        d.ellipse([1, y - 1, 3, y + 1], fill=(230, 210, 120, 255))
+    d.rectangle([6, 5, 12, 11], fill=(240, 230, 255, 255))
+    return img
+
+
+def ender_binder():
+    """末影卡册：黑紫封面，内容跟玩家走。"""
+    img = new()
+    d = ImageDraw.Draw(img)
+    d.rectangle([1, 1, 14, 14], fill=(28, 16, 42, 255), outline=(12, 6, 20, 255))
+    d.rectangle([4, 1, 14, 14], fill=(48, 24, 72, 255))
+    d.rectangle([1, 1, 3, 14], fill=(20, 10, 32, 255))
+    for y in (4, 8, 12):
+        d.ellipse([1, y - 1, 3, y + 1], fill=(120, 230, 190, 255))
+    d.ellipse([6, 5, 12, 11], fill=(40, 180, 150, 255), outline=(180, 255, 230, 255))
+    return img
+
+
+def ender_deck_box():
+    """末影卡盒：深色盒 + 青色瞳孔。"""
+    img = new()
+    d = ImageDraw.Draw(img)
+    d.rectangle([2, 3, 13, 14], fill=(36, 28, 52, 255), outline=(16, 12, 28, 255))
+    d.rectangle([1, 2, 14, 5], fill=(24, 18, 36, 255))
+    d.ellipse([5, 6, 10, 11], fill=(20, 160, 140, 255), outline=(180, 255, 230, 255))
+    d.point((7, 8), fill=(8, 20, 24, 255))
+    return img
+
+
+def collection_gui():
+    """组卡界面：平铺底、卡槽、标题条。中间透出，卡图盖在槽上。"""
+    panel = Image.new("RGBA", (16, 16), (22, 28, 46, 255))
+    d = ImageDraw.Draw(panel)
+    d.rectangle([0, 0, 15, 15], outline=(38, 48, 72, 255))
+
+    slot = Image.new("RGBA", (32, 48), (0, 0, 0, 0))
+    d = ImageDraw.Draw(slot)
+    d.rectangle([0, 0, 31, 47], outline=(186, 150, 72, 255))
+    d.rectangle([1, 1, 30, 46], outline=(92, 70, 36, 255))
+    d.rectangle([2, 2, 29, 45], fill=(16, 18, 28, 180))
+
+    bar = Image.new("RGBA", (16, 8), (46, 62, 96, 255))
+    d = ImageDraw.Draw(bar)
+    d.rectangle([0, 0, 15, 7], outline=(186, 150, 72, 255))
+    return {"panel": panel, "slot": slot, "bar": bar}
+
+
 def main():
     items = {
         "card": card_back(),          # 卡背，作为物品模型基础贴图与渲染器兜底
@@ -128,6 +184,9 @@ def main():
         "deck_box": deck_box(),
         "card_pack": card_pack(),
         "card_binder": card_binder(),
+        "creative_binder": creative_binder(),
+        "ender_binder": ender_binder(),
+        "ender_deck_box": ender_deck_box(),
     }
     blocks = {
         "duel_table": duel_table(),
@@ -141,6 +200,11 @@ def main():
     print("方块贴图 ->", BLOCK_DIR)
     for name, img in blocks.items():
         p = save(img, os.path.join(BLOCK_DIR, name + ".png"))
+        print("   %-14s %6d B" % (name + ".png", os.path.getsize(p)))
+
+    print("组卡界面 ->", GUI_DIR)
+    for name, img in collection_gui().items():
+        p = save(img, os.path.join(GUI_DIR, name + ".png"))
         print("   %-14s %6d B" % (name + ".png", os.path.getsize(p)))
 
     print()

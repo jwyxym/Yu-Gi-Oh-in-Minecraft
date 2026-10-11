@@ -1,11 +1,8 @@
 package cn.xm1221.ygomc.fabric.client;
 
-import cn.xm1221.ygomc.common.client.CardBrowserScreen;
+import cn.xm1221.ygomc.common.client.CollectionClient;
 import cn.xm1221.ygomc.common.client.DuelClient;
-import cn.xm1221.ygomc.common.collection.CardBinderItem;
 import net.fabricmc.api.ClientModInitializer;
-import net.fabricmc.fabric.api.event.player.UseItemCallback;
-import net.minecraft.world.InteractionResultHolder;
 
 /**
  * Fabric 客户端入口。
@@ -29,20 +26,9 @@ public final class YgomcFabricClient implements ClientModInitializer {
 
     @Override
     public void onInitializeClient() {
-        // 右键卡册 -> 打开卡图浏览界面。
-        //
-        // 这里用 Fabric 的事件而不是覆写卡册的 use()：use() 两侧都会执行，
-        // 从那里开界面就得在公共代码里引用 Screen 这类客户端专属类，
-        // 正是上面要避免的事。
-        UseItemCallback.EVENT.register((player, level, hand) -> {
-            if (level.isClientSide() && player.getItemInHand(hand).getItem() instanceof CardBinderItem) {
-                CardBrowserScreen.open(0);
-            }
-            // 必须返回 PASS 而不是 SUCCESS：卡册本身在服务端没有行为，
-            // 在这里「消费」掉这次交互会让服务端看不到它，以后加服务端逻辑时会莫名其妙失效。
-            return InteractionResultHolder.pass(player.getItemInHand(hand));
-        });
         // 对局界面与离开世界时的清场。NeoForge 侧在客户端 setup 里调同一句。
+        // 组卡界面同理：包的接收器只能在客户端登记。
         DuelClient.init();
+        CollectionClient.init();
     }
 }

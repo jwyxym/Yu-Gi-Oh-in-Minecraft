@@ -4,6 +4,7 @@ import cn.xm1221.ygomc.common.card.CardComponents;
 import cn.xm1221.ygomc.common.command.YgomcCommand;
 import cn.xm1221.ygomc.common.duel.DuelConfig;
 import cn.xm1221.ygomc.common.duel.DuelRoom;
+import cn.xm1221.ygomc.common.net.CollectionNet;
 import cn.xm1221.ygomc.common.net.YgomcNet;
 import cn.xm1221.ygomc.common.data.DataPacks;
 import cn.xm1221.ygomc.common.ocg.Natives;
@@ -68,6 +69,7 @@ public final class Ygomc {
         // 网络也要早些登记：S2C 的载荷类型漏注册的症状是「客户端一连就断」，
         // 而服务端日志里没有线索，所以宁可让它出现在启动路径上。
         YgomcNet.registerCommon();
+        CollectionNet.registerCommon();
 
         // 配置（Cloth Config）：超时判负的秒数就从这里读。
         // 放在启动路径上是为了让坏配置在启动日志里就暴露，而不是等开局才炸。

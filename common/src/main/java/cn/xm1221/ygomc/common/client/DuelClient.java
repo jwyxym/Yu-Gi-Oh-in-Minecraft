@@ -135,7 +135,7 @@ public final class DuelClient {
         // update 的返回值已经把「自动回掉的空时点」和「不画的必发提示」排除掉了。
         // 以前这里用 question != null || notice != null，那两样都会把关掉界面的玩家拽回来。
         boolean attention = screen.update(update.board(), update.question(), update.viewerSeat(),
-                update.notice());
+                update.notice(), null, update.questionId(), update.secondsLeft());
         if (DuelScreenFlow.shouldShow(everShown, attention, mc.screen == screen)) {
             mc.setScreen(screen);
             everShown = true;

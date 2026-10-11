@@ -69,6 +69,14 @@ public final class YgomcNet {
     public static final ResourceLocation ANSWER =
             ResourceLocation.fromNamespaceAndPath("ygomc", "duel_answer");
 
+    /**
+     * 这一帧的信封版本，写在包的第一个 int。
+     *
+     * <p>5 起：询问带题号、剩余秒数、「在等哪一席」；必发提示不再上线
+     * （界面本来就不画它）。读到别的号直接抛，不往下猜字段。
+     */
+    public static final int FRAME_VERSION = 5;
+
     /** 客户端交进来的 S2C 处理函数：参数是已经解码好的牌桌与问题。 */
     private static Consumer<BoardUpdate> boardHandler;
 
@@ -81,12 +89,18 @@ public final class YgomcNet {
      * + 一局的结果（只有收局那一帧有，别的时候是 null）。
      */
     public record BoardUpdate(DuelBoard board, DuelQuestion question, int viewerSeat,
-                              ChainNotice notice, DuelResult result) {
+                              ChainNotice notice, DuelResult result,
+                              int questionId, int secondsLeft, int waitingSeat) {
 
-        /** 没有结果的那一帧（绝大多数帧）。 */
+        /** 没有结果、也没有倒计时的那一帧。 */
         public BoardUpdate(DuelBoard board, DuelQuestion question, int viewerSeat,
                            ChainNotice notice) {
-            this(board, question, viewerSeat, notice, null);
+            this(board, question, viewerSeat, notice, null, 0, -1, -1);
+        }
+
+        public BoardUpdate(DuelBoard board, DuelQuestion question, int viewerSeat,
+                           ChainNotice notice, DuelResult result) {
+            this(board, question, viewerSeat, notice, result, 0, -1, -1);
         }
     }
 
@@ -116,6 +130,12 @@ public final class YgomcNet {
     public static void registerClient(Consumer<BoardUpdate> handler) {
         boardHandler = handler;
         NetworkManager.registerReceiver(NetworkManager.Side.S2C, BOARD, (buf, ctx) -> {
+            int frame = buf.readInt();
+            if (frame != FRAME_VERSION) {
+                throw new IllegalStateException(
+                        "对局帧版本不符：收到 " + frame + "，本端是 " + FRAME_VERSION
+                                + "。两端要一起换，不往下猜字段。");
+            }
             byte[] board = buf.readByteArray();
             boolean hasQuestion = buf.readBoolean();
             byte[] question = hasQuestion ? buf.readByteArray() : null;
@@ -123,20 +143,19 @@ public final class YgomcNet {
             // （对手回合里每一步末尾都会发一帧）就只能默认 0 号席：
             // 后手玩家会看到对手的牌桌，而且看不见自己的手牌。
             int viewerSeat = buf.readInt();
-            // 必发通知：一次性，绝大多数帧没有它（服务端取走就没了）。
-            boolean hasNotice = buf.readBoolean();
-            byte[] notice = hasNotice ? buf.readByteArray() : null;
-            // 收局结果：<b>尾巴上的尾巴</b>，只有收局那一帧有。老服务端根本不写它，
-            // 所以必须先问「还有没有字节」——直接读会抛（读越界），
-            // 而这一帧在其他方面完全正常。
-            byte[] result = buf.readableBytes() > 0 && buf.readBoolean() ? buf.readByteArray() : null;
+            int questionId = buf.readInt();
+            int secondsLeft = buf.readInt();
+            int waitingSeat = buf.readByte();
+            // 必发提示不再上线（界面不画）。旧帧里的那一截已经不读。
+            byte[] result = buf.readBoolean() ? buf.readByteArray() : null;
             // 先解码再排队：解码是纯计算，放在网络线程上没问题，
             // 这样主线程拿到的已经是可用对象，也就把「解析失败」和「界面出错」
             // 这两类故障分到了不同的线程，排查时不会混在一起。
             BoardUpdate update = new BoardUpdate(DuelWire.decodeBoard(board),
                     hasQuestion ? DuelWire.decodeQuestion(question) : null, viewerSeat,
-                    hasNotice ? DuelWire.decodeNotice(notice) : null,
-                    result == null ? null : DuelWire.decodeResult(result));
+                    null,
+                    result == null ? null : DuelWire.decodeResult(result),
+                    questionId, secondsLeft, waitingSeat);
             Consumer<BoardUpdate> h = boardHandler;
             if (h != null) {
                 ctx.queue(() -> h.accept(update));
@@ -167,27 +186,53 @@ public final class YgomcNet {
      */
     public static void sendBoard(ServerPlayer player, DuelBoard board, DuelQuestion question,
                                  ChainNotice notice, int viewerSeat, DuelResult result) {
+        sendBoard(player, board, question, notice, viewerSeat, result, 0, -1, -1);
+    }
+
+    /**
+     * @param questionId  这一问的题号；没有询问时是 0
+     * @param secondsLeft 待答还剩几秒；没人在等时是 -1。从提问时刻算，不是每次发包重新记满
+     * @param waitingSeat 正在等哪一席；没有是 -1
+     */
+    public static void sendBoard(ServerPlayer player, DuelBoard board, DuelQuestion question,
+                                 ChainNotice notice, int viewerSeat, DuelResult result,
+                                 int questionId, int secondsLeft, int waitingSeat) {
+        // notice 不再写入这一帧。参数留着是为了不改房间里所有调用点的形状；
+        // 界面不画必发提示，线上再带它只是占字节。
+        var server = player.getServer();
+        if (server == null) {
+            return;
+        }
         RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(
                 io.netty.buffer.Unpooled.buffer(), player.registryAccess());
+        buf.writeInt(FRAME_VERSION);
         buf.writeByteArray(DuelWire.encodeBoard(board));
         buf.writeBoolean(question != null);
         if (question != null) {
             buf.writeByteArray(DuelWire.encodeQuestion(question));
         }
         buf.writeInt(viewerSeat);
-        // 通知放在最后：它是一次性的、大多数帧没有。放尾巴上时，
-        // 老客户端读到自己认识的字段就停手，不会把牌桌/询问读错位。
-        buf.writeBoolean(notice != null);
-        if (notice != null) {
-            buf.writeByteArray(DuelWire.encodeNotice(notice));
-        }
-        // 结果排在通知<b>之后</b>，理由同上：老客户端读完通知就停手，
-        // 这段它既读不到也不会读错位。
+        buf.writeInt(questionId);
+        buf.writeInt(secondsLeft);
+        buf.writeByte(waitingSeat);
         buf.writeBoolean(result != null);
         if (result != null) {
             buf.writeByteArray(DuelWire.encodeResult(result));
         }
-        NetworkManager.sendToPlayer(player, BOARD, buf);
+        Runnable send = () -> {
+            if (!server.isSameThread()) {
+                throw new IllegalStateException("对局帧不在主线程上发");
+            }
+            if (player.hasDisconnected()) {
+                return;
+            }
+            NetworkManager.sendToPlayer(player, BOARD, buf);
+        };
+        if (server.isSameThread()) {
+            send.run();
+        } else {
+            server.execute(send);
+        }
     }
 
     /**
@@ -198,9 +243,11 @@ public final class YgomcNet {
      * 所以这里不给它留一个会静默生效的错误默认值。客户端手上就有
      * （{@code level.registryAccess()}）。
      */
-    public static void sendAnswer(byte[] answer, net.minecraft.core.RegistryAccess registries) {
+    public static void sendAnswer(int questionId, byte[] answer,
+                                  net.minecraft.core.RegistryAccess registries) {
         RegistryFriendlyByteBuf buf = new RegistryFriendlyByteBuf(
                 io.netty.buffer.Unpooled.buffer(), registries);
+        buf.writeInt(questionId);
         buf.writeByteArray(answer);
         NetworkManager.sendToServer(ANSWER, buf);
     }
@@ -213,7 +260,7 @@ public final class YgomcNet {
     /** 应答的去处。返回 true 表示被接收；false 表示没有在等这个玩家的应答。 */
     @FunctionalInterface
     public interface AnswerSink {
-        boolean accept(java.util.UUID player, DuelWire.Responder2 answer);
+        boolean accept(java.util.UUID player, int questionId, DuelWire.Responder2 answer);
     }
 
     public static void setAnswerSink(AnswerSink sink) {
@@ -221,12 +268,13 @@ public final class YgomcNet {
     }
 
     private static void onAnswer(RegistryFriendlyByteBuf buf, NetworkManager.PacketContext ctx) {
+        int questionId = buf.readInt();
         DuelWire.Responder2 answer = DuelWire.decodeAnswer(buf.readByteArray());
         java.util.UUID who = ctx.getPlayer().getUUID();
         AnswerSink sink = answerSink;
         // 回到主线程再提交：应答要唤醒等待中的对局线程，而那边会碰对局状态。
         ctx.queue(() -> {
-            if (sink == null || !sink.accept(who, answer)) {
+            if (sink == null || !sink.accept(who, questionId, answer)) {
                 // 说清楚是「没人等」而不是静默丢弃：这类问题最常见的成因是
                 // 客户端发早了（问题还没到）或者界面没跟着状态清掉按钮。
                 org.slf4j.LoggerFactory.getLogger("ygomc/net")

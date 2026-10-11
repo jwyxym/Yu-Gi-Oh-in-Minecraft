@@ -1,6 +1,7 @@
 package cn.xm1221.ygomc.neoforge.client;
 
 import cn.xm1221.ygomc.common.Ygomc;
+import cn.xm1221.ygomc.common.client.CollectionClient;
 import cn.xm1221.ygomc.common.client.DuelClient;
 import cn.xm1221.ygomc.common.registry.YgomcItems;
 import net.minecraft.client.renderer.BlockEntityWithoutLevelRenderer;
@@ -14,10 +15,7 @@ import net.neoforged.neoforge.client.extensions.common.RegisterClientExtensionsE
 /**
  * NeoForge 的客户端注册（模组总线）。
  *
- * <p>与 {@link YgomcNeoForgeClient} 分成两个类，是因为它们挂在不同总线上：
- * {@link RegisterClientExtensionsEvent} 实现的是 {@code IModBusEvent}，
- * 所以它在<b>模组总线</b>上；而 {@code PlayerInteractEvent} 在<b>游戏总线</b>上。
- * {@code @EventBusSubscriber} 的 bus 属性是类级别的，一个类只能选一条。
+ * <p>{@link RegisterClientExtensionsEvent} 实现的是 {@code IModBusEvent}，所以它在模组总线上。
  *
  * <p>注意 bus 属性在 21.1.252 里已被标记为「弃用并待删除」。
  * 这里仍然显式写出来，是因为它在当前版本<b>仍然生效</b>，而写明总线的语义
@@ -38,6 +36,7 @@ public final class YgomcNeoForgeClientSetup {
     @SubscribeEvent
     public static void onClientSetup(FMLClientSetupEvent event) {
         DuelClient.init();
+        CollectionClient.init();
     }
 
     /**

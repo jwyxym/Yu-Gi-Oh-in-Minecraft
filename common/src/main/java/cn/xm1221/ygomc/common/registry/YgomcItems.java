@@ -67,10 +67,15 @@ public final class YgomcItems {
 
     // ---------------------------------------------------------------- 组卡
 
-    /** 卡组盒：承载一副卡组。 */
+    /** 卡组盒：卡组写在物品上。 */
     public static final RegistrySupplier<DeckBoxItem> DECK_BOX =
             ITEMS.register("deck_box",
                     () -> new DeckBoxItem(new Item.Properties().stacksTo(1)));
+
+    /** 末影卡盒：卡组跟玩家走，物品本身不存卡。 */
+    public static final RegistrySupplier<DeckBoxItem> ENDER_DECK_BOX =
+            ITEMS.register("ender_deck_box",
+                    () -> new DeckBoxItem(new Item.Properties().stacksTo(1), true));
 
     // ---------------------------------------------------------------- 开包
 
@@ -81,10 +86,20 @@ public final class YgomcItems {
 
     // ---------------------------------------------------------------- 收藏
 
-    /** 卡册：浏览已持有的卡。 */
+    /** 卡册：卡存在这本物品上，没有张数上限。 */
     public static final RegistrySupplier<CardBinderItem> CARD_BINDER =
             ITEMS.register("card_binder",
                     () -> new CardBinderItem(new Item.Properties().stacksTo(1)));
+
+    /** 创造卡册：内容是整份卡池，取走不减少。 */
+    public static final RegistrySupplier<CardBinderItem> CREATIVE_BINDER =
+            ITEMS.register("creative_binder",
+                    () -> new CardBinderItem(new Item.Properties().stacksTo(1), CardBinderItem.Kind.CREATIVE));
+
+    /** 末影卡册：卡跟玩家走。 */
+    public static final RegistrySupplier<CardBinderItem> ENDER_BINDER =
+            ITEMS.register("ender_binder",
+                    () -> new CardBinderItem(new Item.Properties().stacksTo(1), CardBinderItem.Kind.ENDER));
 
     /**
      * 注册全部物品。

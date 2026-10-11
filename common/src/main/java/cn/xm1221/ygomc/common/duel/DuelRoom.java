@@ -442,7 +442,7 @@ public final class DuelRoom implements OcgDuel.Observer {
             }
             // 有通知时，即使这一步已经发过牌桌也要再发一帧：通知是一次性的，
             // 不能等下一步（对手回合里下一步可能很久之后）。
-            YgomcNet.sendBoard(humans[seat], snapshot(duel, seat), null, notice, seat);
+            push(seat, snapshot(duel, seat), null, notice);
         }
     }
 
@@ -464,8 +464,8 @@ public final class DuelRoom implements OcgDuel.Observer {
         }
         firstFrameSent[seat] = true;
         boardSent[seat] = true;
-        YgomcNet.sendBoard(who, snapshot(currentDuel, seat), hintAware(seat, question),
-                pendingNotice[seat].take(), seat);
+        push(seat, snapshot(currentDuel, seat), hintAware(seat, question),
+                pendingNotice[seat].take());
         // 有询问的那一席已经拿到画面了，另一席还在干等——就在这一刻补给他。
         pushFirstFrame();
     }
@@ -491,8 +491,7 @@ public final class DuelRoom implements OcgDuel.Observer {
                 continue;
             }
             firstFrameSent[seat] = true;
-            YgomcNet.sendBoard(humans[seat], snapshot(currentDuel, seat), null,
-                    pendingNotice[seat].take(), seat);
+            push(seat, snapshot(currentDuel, seat), null, pendingNotice[seat].take());
         }
     }
 
@@ -763,8 +762,8 @@ public final class DuelRoom implements OcgDuel.Observer {
 
     // ── 服务器主线程 ──────────────────────────────────────────────────────
 
-    /** 收到某个玩家的应答。返回 false 表示没有房间在等他。 */
-    private static boolean acceptAnswer(UUID who, DuelWire.Responder2 answer) {
+    /** 收到某个玩家的应答。返回 false 表示没有房间在等他，或题号不是当前这一问。 */
+    private static boolean acceptAnswer(UUID who, int questionId, DuelWire.Responder2 answer) {
         DuelRoom room = ACTIVE.get(who);
         if (room == null) {
             return false;
@@ -777,8 +776,25 @@ public final class DuelRoom implements OcgDuel.Observer {
                 ? Responder.Response.of(answer.bytes())
                 : Responder.Response.of(answer.value());
         // 交给【他自己那一席】的应答器：双人局里两个人的回信都走这里，
-        // 交错了就会把甲的答案填到乙的询问上。
-        return room.responders[seat].submit(r);
+        // 交错了就会把甲的答案填到乙的询问上。题号不对的同样拒掉。
+        return room.responders[seat].submit(questionId, r);
+    }
+
+    /** 把一帧推给这一席，附上「在等谁、还剩几秒、这一问的题号」。 */
+    private void push(int seat, DuelBoard board, DuelQuestion question, ChainNotice notice) {
+        int waiting = -1;
+        int seconds = -1;
+        for (int s = 0; s < 2; s++) {
+            PlayerResponder r = responders[s];
+            if (r != null && r.pendingQuestionId() != 0) {
+                waiting = s;
+                seconds = r.secondsLeft();
+                break;
+            }
+        }
+        int qid = question != null && responders[seat] != null
+                ? responders[seat].pendingQuestionId() : 0;
+        YgomcNet.sendBoard(humans[seat], board, question, notice, seat, null, qid, seconds, waiting);
     }
 
     // ── 开局前置检查 ──────────────────────────────────────────────────────

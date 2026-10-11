@@ -1,5 +1,7 @@
 package cn.xm1221.ygomc.common.duel;
 
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.InteractionResultHolder;
@@ -7,7 +9,11 @@ import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
+
+import java.util.List;
+import java.util.UUID;
 
 /**
  * 便携决斗盘：向另一名玩家发起对局邀请（PLAN §5.2 的「便携入口」）。
@@ -32,23 +38,21 @@ public class DuelDiskItem extends Item {
     }
 
     /**
-     * 手持决斗盘右键某个生物 → 邀请它（玩家）决斗。
-     *
-     * <p>本轮只留结构：真正的邀请要走 {@code DuelRoom} 管理器
-     * （房间、邀请、观众席、准备/选卡组/先后手，状态机 IDLE→PREPARING→DUELING→SIDING→END），
-     * 属于 M2。
+     * 手持决斗盘右键一名玩家：邀请他。如果右键的正是邀请你的那个人，则改成接受。
      */
-    // TODO(M2): 实现 DuelRoom 邀请流程：
-    //   1) 服务端校验发起者与目标是否都已空闲（不在其它房间）；
-    //   2) 目标必须是 Player 且不是自己、不是旁观者；
-    //   3) 建房间 -> 发邀请包 -> 等对方接受 -> 进入选卡组阶段；
-    //   4) 返回 InteractionResult.SUCCESS 让客户端播挥手动画。
     @Override
     public InteractionResult interactLivingEntity(ItemStack stack, Player player, LivingEntity target,
                                                  InteractionHand hand) {
-        // M2 落实现时的第一步就是这一句（现在写了也没用，因为两侧都只返回 PASS）：
-        //   if (player.level().isClientSide()) { return InteractionResult.PASS; }
-        return InteractionResult.PASS;
+        if (!(target instanceof ServerPlayer to) || !(player instanceof ServerPlayer from)) {
+            return player.level().isClientSide() && target instanceof Player
+                    ? InteractionResult.SUCCESS : InteractionResult.PASS;
+        }
+        UUID pending = DuelLobby.pendingInviter(from);
+        String message = pending != null && pending.equals(to.getUUID())
+                ? DuelLobby.accept(from)
+                : DuelLobby.invite(from, to);
+        from.displayClientMessage(Component.literal(message), false);
+        return InteractionResult.SUCCESS;
     }
 
     /**
@@ -66,37 +70,33 @@ public class DuelDiskItem extends Item {
      * {@code Item#use} 在 1.21 的签名（它要把「用完这格物品变成什么」一并带回去）；
      * 写成 {@link InteractionResult} 会编译不过。
      */
-    // TODO(M2): 打开决斗盘 GUI（只读状态面板）；之后有了卡组选择界面，
-    // 再由面板引导选卡组，而不是直接开局。
+    /**
+     * 对着空气右键：对局中把界面拉回来；有人邀请你就接受；否则说明怎么约战。
+     */
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
         ItemStack stack = player.getItemInHand(hand);
         if (level.isClientSide()) {
-            // 客户端：手里拿着决斗盘右键空气 = 回到当前对局界面。
-            // 关掉界面之后原本没有任何入口能回来，只能等下一个询问把我拽回去，
-            // 而轮到对手操作时可能很久都没有自己的询问。
             DuelDiskHooks.reopenScreen();
             return InteractionResultHolder.success(stack);
         }
-        if (!(player instanceof net.minecraft.server.level.ServerPlayer server)) {
+        if (!(player instanceof ServerPlayer server)) {
             return InteractionResultHolder.pass(stack);
         }
         if (DuelRoom.isDueling(server)) {
-            // 这一局正开着：界面那侧由客户端自己拉回来（见上面的 isClientSide 分支）。
-            // 这里刻意<b>不</b>报「你已有一局在进行中」——右键一次刷一行字纯属噪音，
-            // 而且这句话会盖住「界面已经回来了」这个真正的结果。
             return InteractionResultHolder.success(stack);
         }
-        String problem = DuelRoom.startFor(server,
-                cn.xm1221.ygomc.common.command.YgomcCommand.loadoutForDuel(),
-                cn.xm1221.ygomc.common.command.YgomcCommand.opponentLoadoutForDuel());
-        if (problem != null) {
-            // 开局失败必须说出来。静默失败的表现是「右键没反应」，
-            // 与「这个物品根本没实现」长得一样。
-            server.displayClientMessage(
-                    net.minecraft.network.chat.Component.literal(problem), false);
-            return InteractionResultHolder.fail(stack);
+        if (DuelLobby.pendingInviter(server) != null) {
+            server.displayClientMessage(Component.literal(DuelLobby.accept(server)), false);
+            return InteractionResultHolder.success(stack);
         }
+        server.displayClientMessage(Component.translatable("ygomc.lobby.how"), false);
         return InteractionResultHolder.success(stack);
+    }
+
+    @Override
+    public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
+        super.appendHoverText(stack, context, tooltip, flag);
+        tooltip.add(Component.translatable("ygomc.lobby.disk_tip"));
     }
 }

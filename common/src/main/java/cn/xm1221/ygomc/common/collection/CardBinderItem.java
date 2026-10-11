@@ -1,47 +1,71 @@
 package cn.xm1221.ygomc.common.collection;
 
+import cn.xm1221.ygomc.common.card.CardComponents;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResultHolder;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.level.Level;
 
+import java.util.List;
+
 /**
- * 卡册：收藏与检索全部持有的卡。
+ * 卡册：用来存卡，不设张数上限。
  *
- * <h2>为什么卡册不自己存一张「我有哪些卡」的清单</h2>
- * 收藏的权威来源是<b>物品本身</b>——卡在谁背包里、在哪个箱子里，就是谁拥有它。
- * 如果卡册再存一份清单，一旦玩家把卡私下交易出去，两份数据就会打架，
- * 而且没法判断哪份是对的。所以卡册只是一个<b>视图</b>：
- * 打开时扫描玩家（以及可配置范围内的容器）里的 {@code card} 物品，
- * 按 {@code CardRef} 聚合去重，渲染成册页。
+ * <ul>
+ *   <li>{@link Kind#ITEM}：卡写在这本物品上，跟着物品走；</li>
+ *   <li>{@link Kind#ENDER}：物品只是钥匙，内容跟玩家走，跟末影箱一样；</li>
+ *   <li>{@link Kind#CREATIVE}：打开就是整份卡池，取走不减少。不接受放入，免得把卡吞掉。</li>
+ * </ul>
  *
- * <p>扫描背包是 O(背包格数)，对单人背包完全够快；服务端将来维护的
- * per-player 索引（在背包变化时增量更新）只是为了在卡很多时加速搜索，
- * 属于纯优化，删掉它功能依然正确。
+ * 组卡时，物品栏里的卡册（含末影、创造）会作为可消耗的来源。创造卡册在背包里时不扣卡。
  */
 public class CardBinderItem extends Item {
 
-    public CardBinderItem(Properties properties) {
-        super(properties);
+    public enum Kind {
+        ITEM, CREATIVE, ENDER
     }
 
-    /**
-     * 右键：打开卡册界面。
-     *
-     * <p>返回类型是 {@link InteractionResultHolder}，见 {@code Item#use} 在 1.21 的签名。
-     */
-    // TODO(M3): 服务端扫描玩家背包/末影箱 -> 按 CardRef 聚合 -> 下发分页列表 ->
-    //           客户端 CardBinderScreen 渲染（卡图按需从 pics.bin 解码）。
+    private final Kind kind;
+
+    public CardBinderItem(Properties properties) {
+        this(properties, Kind.ITEM);
+    }
+
+    public CardBinderItem(Properties properties, Kind kind) {
+        super(properties);
+        this.kind = kind;
+    }
+
+    public Kind kind() {
+        return kind;
+    }
+
+    public static BinderContents contents(ItemStack stack) {
+        BinderContents stored = stack.get(CardComponents.BINDER_CONTENTS.get());
+        return stored == null ? BinderContents.EMPTY : stored;
+    }
+
     @Override
     public InteractionResultHolder<ItemStack> use(Level level, Player player, InteractionHand hand) {
-        return super.use(level, player, hand);
+        ItemStack stack = player.getItemInHand(hand);
+        if (!level.isClientSide() && player instanceof ServerPlayer serverPlayer) {
+            CollectionServer.openBinder(serverPlayer, hand);
+        }
+        return InteractionResultHolder.sidedSuccess(stack, level.isClientSide());
     }
 
-    /**
-     * 卡册里装的卡是不是也该显示在悬停提示里？
-     * 现在不做——卡册不持有内容（见类注释），没有可显示的东西。
-     */
-    // 刻意不覆写 appendHoverText。
+    @Override
+    public void appendHoverText(ItemStack stack, TooltipContext context, List<Component> tooltip, TooltipFlag flag) {
+        super.appendHoverText(stack, context, tooltip, flag);
+        switch (kind) {
+            case CREATIVE -> tooltip.add(CollectionText.c(CollectionText.ALL_CARDS));
+            case ENDER -> tooltip.add(CollectionText.c(CollectionText.FOLLOWS_PLAYER));
+            case ITEM -> tooltip.add(CollectionText.c(CollectionText.BINDER_COUNT, contents(stack).cards().size()));
+        }
+    }
 }

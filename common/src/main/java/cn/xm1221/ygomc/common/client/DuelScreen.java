@@ -73,6 +73,10 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
     private int[] counterAmounts = new int[0];
     /** 已提交、在等下个询问。这期间界面留着但按钮全灭。 */
     private boolean submitted;
+    /** 当前这一问的题号。应答必须带上它，迟到的旧应答才会被服务端拒掉。 */
+    private int questionId;
+    /** 这一问的截止时刻（毫秒）。0 表示没有倒计时。 */
+    private long deadlineAt;
     /** 本地玩家座位。询问到达时更新；没询问时沿用上一次。 */
     private int mySeat;
 
@@ -262,18 +266,26 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
      * 所以这里直接用内容相等来判断「还是不是同一题」。
      */
     public boolean update(DuelBoard board, DuelQuestion question, int viewerSeat, ChainNotice notice) {
-        return update(board, question, viewerSeat, notice, null);
+        return update(board, question, viewerSeat, notice, null, 0, -1);
+    }
+
+    public boolean update(DuelBoard board, DuelQuestion question, int viewerSeat, ChainNotice notice,
+                          DuelResult result) {
+        return update(board, question, viewerSeat, notice, result, 0, -1);
     }
 
     /**
      * 服务器推来新状态时调用，收局那一帧还带着结果。
      *
      * @param result 收局结果；非 null 表示这一局结束了，界面切到收局画面
+     * @param questionId 这一问的题号；没有询问时是 0。应答原样带回去
+     * @param secondsLeft 还剩几秒；-1 表示这一帧没有倒计时
      * @return 这一帧值不值得把关掉的界面重新推到眼前
      *         （{@link DuelScreenFlow#needsAttention}）。收局恒为 true。
      */
     public boolean update(DuelBoard board, DuelQuestion question, int viewerSeat, ChainNotice notice,
-                          DuelResult result) {
+                          DuelResult result, int questionId, int secondsLeft) {
+        this.questionId = questionId;
         if (result != null) {
             // 收局帧。牌桌一般是 null（服务端只带结果），这时【保留】上一帧：
             // 收局画面的背景就是玩家刚打完的那一屏，清掉等于把他这一局当场抹掉。
@@ -286,6 +298,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
             this.question = null;
             this.notice = null;
             this.submitted = false;
+            this.deadlineAt = 0;
             this.chosen.clear();
             this.menu.clear();
             this.extraMenuRef = null;
@@ -330,6 +343,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
                 // 界面保持原样即可——服务端没答完就不会推新帧，所以正在显示的那一问
                 // 必定已经答过、点不动了；这里也就不必再写「等待服务器…」。
                 sendQuiet(question, ci);
+                // 题号已经写在 this.questionId 上，sendQuiet 会把它带回去。
                 // 不把这一问摆上界面，也不把它算成「值得把界面拽回来」：
                 // 玩家在对手回合关掉界面去做别的事时，每一个空时点都会把他拽回来，
                 // 而那一问根本不需要他。
@@ -338,6 +352,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
             // 没有取消项＝必发连锁，不能替玩家放弃，往下照常摆出来。
         }
         this.question = question;
+        noteClock(secondsLeft);
         trackLpDeltas(board);
         if (!same) {
             chosen.clear();
@@ -365,6 +380,27 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
 
     private FieldLayout field() {
         return FieldLayout.compute(width, height);
+    }
+
+    /** 用这一帧带来的剩余秒数对准本地截止时刻。-1 表示这帧没有倒计时。 */
+    private void noteClock(int secondsLeft) {
+        if (secondsLeft < 0) {
+            deadlineAt = 0;
+            return;
+        }
+        deadlineAt = System.currentTimeMillis() + secondsLeft * 1000L;
+    }
+
+    /** 还剩几秒；没有倒计时是 -1。 */
+    private int secondsRemaining() {
+        if (deadlineAt == 0) {
+            return -1;
+        }
+        long left = deadlineAt - System.currentTimeMillis();
+        if (left <= 0) {
+            return 0;
+        }
+        return (int) ((left + 999) / 1000);
     }
 
     private DuelBoard.PlayerBoard me() {
@@ -611,14 +647,42 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
     }
 
     /**
+     * 额外卡组的特殊召唤列表是玩家自己点开的，而这道询问（主要阶段）往往不能取消。
+     * 这时「取消」只收起列表，不向引擎交应答。
+     */
+    private boolean extraListDismissable() {
+        return extraListOpen && cancelIndex() < 0;
+    }
+
+    private void closeExtraList() {
+        extraListOpen = false;
+        rebuild();
+    }
+
+    /** 卡名行数。可取消，或只是收起额外卡组列表时，末尾多一行。 */
+    private int listRowCount() {
+        int n = piles.size();
+        if (cancelIndex() >= 0 || (extraListOpen && cancelIndex() < 0)) {
+            n++;
+        }
+        return n;
+    }
+
+    /**
      * 卡列表窗口放在哪。左侧、纵向居中，宽度只占场地的一小条：
      * 右边要留给信息面板（悬停列表项时卡图就显示在那里）。
      */
     private FieldLayout.Rect listRect() {
         FieldLayout L = field();
-        int w = Math.min(230, Math.max(130, L.fieldW() / 3));
-        int h = Math.min(L.height() - 70, Math.max(70, L.height() * 3 / 4));
-        return new FieldLayout.Rect(L.x0(), Math.max(2, (L.height() - h) / 2), w, h);
+        // 纵向夹在阶段条和状态条之间。以前按整屏居中，矮窗口上列表底会被后画的状态条盖住，
+        // 点下去却还是列表——画的一层和点的一层不是同一块。
+        int top = 22;
+        int bottom = Math.max(top + 40, L.status().y() - 4);
+        int maxH = bottom - top;
+        int h = Math.min(maxH, Math.max(40, Math.min(L.height() - 70, L.height() * 3 / 4)));
+        int y = top + Math.max(0, (maxH - h) / 2);
+        int w = Math.min(230, Math.max(80, Math.min(L.fieldW() / 3, L.fieldW() - 8)));
+        return new FieldLayout.Rect(L.x0(), y, w, h);
     }
 
     /**
@@ -706,7 +770,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
         // 答完（submitted）就不要再摆卡名列表：ygo 交出应答时会把选择窗口收起来
         // （duelclient.cpp:2517-2520）。以前列表会赖在屏幕上，看着像「还没答」。
         list = !submitted && question.needsCardList() && !piles.isEmpty() && (autoList || extraListOpen)
-                ? new CardList(listRect(), piles.size() + (cancelIndex() >= 0 ? 1 : 0)) : null;
+                ? new CardList(listRect(), listRowCount()) : null;
         if (list != null || spatial() || actionQuestion()) {
             return;
         }
@@ -752,14 +816,19 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
         for (int index : indices) {
             bw = Math.max(bw, font.width(shortLabel(question.options().get(index))) + 18);
         }
-        bw = Math.min(bw, Math.max(60, width / 2));
+        // 面板已经挪到右边，panel().y() 恒为 0。沿用「贴在面板上沿」会把这排按钮
+        // 钉在屏幕顶端，盖住阶段条；按整屏宽度居中又会伸进右侧卡文里。
+        // 按钮是控件，画在所有面板之上，盖住了就真的压在最上面。
+        bw = Math.min(bw, Math.max(60, (L.fieldW() - 8) / 2));
         int n = indices.size();
-        // 项数多（宣言种族/属性）就折成两列，别顶到屏幕上边
-        int cols = n * (bh + gap) > height - 70 ? 2 : 1;
+        int cols = n * (bh + gap) > L.status().y() - 40 ? 2 : 1;
         int rows = (n + cols - 1) / cols;
         int totalH = rows * (bh + gap);
-        int x0 = (width - (cols * bw + (cols - 1) * gap)) / 2;
-        int y0 = Math.max(4, L.panel().y() - totalH - 8);
+        int gridW = cols * bw + (cols - 1) * gap;
+        int x0 = Math.max(4, (L.fieldW() - gridW) / 2);
+        int top = 22;
+        int bottom = Math.max(top, L.status().y() - 4);
+        int y0 = top + Math.max(0, (bottom - top - totalH) / 2);
 
         for (int i = 0; i < n; i++) {
             final int index = indices.get(i);
@@ -1106,6 +1175,13 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
             }
             if (browse != null) {
                 closeBrowse();
+                return true;
+            }
+            // 额外卡组「特殊召唤」摊开的列表：这道询问本身往往不能取消（主要阶段），
+            // 但列表是玩家自己点开的，右键必须能把它收起来，不交出应答。
+            if (extraListDismissable()) {
+                closeExtraList();
+                return true;
             }
             return true;
         }
@@ -1148,7 +1224,14 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
                 // （ClientField::ShowSelectCard，client_field.cpp:431-527）：
                 // 从额外卡组特殊召唤不是强制的，不给退路就等于逼玩家挑一只。
                 cancel();
+            } else if (row == piles.size() && extraListDismissable()) {
+                closeExtraList();
             }
+            return true;
+        }
+        // 点在这张自己摊开的列表外面：收起，不把这一下当成召唤。
+        if (extraListDismissable() && list != null) {
+            closeExtraList();
             return true;
         }
         // 正在查看牌堆：点窗口外收起（窗口右上角有「收起」键，右键也能收）；
@@ -1278,12 +1361,14 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
             addRenderableWidget(confirm);
             x -= bw + gap;
         }
-        if (ask || yes >= 0 || question.cancelable()) {
+        if (ask || yes >= 0 || question.cancelable() || extraListDismissable()) {
             // 只有询问真的给了退路才造这颗键。判据是【消息自带的可取消标志】
             // （{@code select_cancelable}，duelclient.cpp:1623/1688），不是「选项表里有没有取消项」：
             // 后者只在部分询问类型里成立，正是「取消键时灵时不灵」的来源。
             cancelBtn = Button.builder(DuelText.c(DuelText.BUTTON_CANCEL), b -> {
-                if (ask) {
+                if (extraListDismissable()) {
+                    closeExtraList();
+                } else if (ask) {
                     cancel();
                 } else if (cancelPick >= 0) {
                     onOption(cancelPick);
@@ -1333,7 +1418,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
             confirm.active = confirm.visible;
         }
         if (cancelBtn != null) {
-            cancelBtn.visible = DuelScreenFlow.showCancel(ask, yesNo,
+            cancelBtn.visible = extraListDismissable() || DuelScreenFlow.showCancel(ask, yesNo,
                     question != null && question.cancelable(), chosen.isEmpty());
             cancelBtn.active = cancelBtn.visible;
         }
@@ -1432,7 +1517,9 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
         for (int idx : menu) {
             w = Math.max(w, font.width(menuLabel(idx)) + 14);
         }
-        return Math.min(w, Math.max(60, width - 8));
+        // 夹在场地里，不夹到整屏：信息面板画在菜单之后，伸过去的那一截会被面板盖住，
+        // 点下去却还是菜单。
+        return Math.min(w, Math.max(60, field().fieldW() - 8));
     }
 
     /** 命中菜单第几行；没命中返回 -1。几何与 {@link #drawMenu} 用的是同一份。 */
@@ -1516,7 +1603,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
     /** 交出数据模型已经拼好的应答。<b>编码仍然只发生在 {@code DuelQuestion} 里。</b> */
     private void dispatch(DuelQuestion q, cn.xm1221.ygomc.common.ocg.Responder.Response r) {
         var mc = net.minecraft.client.Minecraft.getInstance();
-        YgomcNet.sendAnswer(
+        YgomcNet.sendAnswer(questionId,
                 DuelWire.encodeAnswer(r.isBytes()
                         ? DuelWire.Responder2.of(r.bytes())
                         : DuelWire.Responder2.of(r.value())),
@@ -1610,7 +1697,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
             }
             return false;
         }
-        YgomcNet.sendAnswer(
+        YgomcNet.sendAnswer(questionId,
                 DuelWire.encodeAnswer(r.isBytes()
                         ? DuelWire.Responder2.of(r.bytes())
                         : DuelWire.Responder2.of(r.value())),
@@ -1666,23 +1753,47 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
         // 所以它的命中判定也排在阶段条之前、列表/菜单之后。
         drawSkipButton(g, L);
         drawOverlay(g, L, mouseX, mouseY);
+        // 字体比同层矩形近 0.03（Font 里写死的）。只 flush 不够：字已经写进深度缓冲，
+        // 后画的、同样 z=0 的板过不了深度测试，EX 和牌堆数字就留在窗口上面。
+        // 每一层先 flush，再把姿态往前推一截，这块板才真的盖住下面的字。
+        cover(g, 200);
         drawCardList(g, mouseX, mouseY);
+        uncover(g);
+        cover(g, 400);
         drawBrowse(g, mouseX, mouseY);
+        uncover(g);
+        cover(g, 600);
         drawStatusBar(g, L);
         drawLifeBadges(g, L);
-        // 图层顺序（咩咩 2026-10-05 报的「图层问题」）：
-        //   底色 → 场地 → 阶段条 → 场内高亮 → 卡名列表 → 查看窗 → 状态条 → LP 徽章
-        //   → 卡片菜单 → 右侧信息面板 → 弹窗 → 收局画面 → 控件（按钮永远最上）。
-        // 修掉的三处：弹窗原来画在信息面板【之前】（面板压掉弹窗右半边）；卡片菜单画得
-        // 比状态条还早（贴着手牌行弹出的菜单被压住，看着像「点了没反应」）；
-        // 必发提示条已按咩咩要求不再显示。
+        uncover(g);
+        cover(g, 800);
         drawMenu(g);
+        uncover(g);
+        cover(g, 1000);
         drawInfoPanel(g, L, mouseX, mouseY);
+        uncover(g);
+        cover(g, 1200);
         drawPopup(g);
-        // 收局画面排在弹窗之后、控件之前：它是最上面的一块板
-        // （按钮永远最上，所以那颗「确定」还是压在它上面）。
+        uncover(g);
+        cover(g, 1400);
         drawResult(g, L);
+        uncover(g);
+        cover(g, 1600);
         super.render(g, mouseX, mouseY, partialTick);
+        uncover(g);
+    }
+
+    /** 先把下面那层画进帧缓冲，再把这一层往相机方向推 {@code z}。 */
+    private static void cover(GuiGraphics g, int z) {
+        g.flush();
+        g.pose().pushPose();
+        g.pose().translate(0.0F, 0.0F, z);
+    }
+
+    /** 这一层的字也画进去，再回到原来的深度。 */
+    private static void uncover(GuiGraphics g) {
+        g.flush();
+        g.pose().popPose();
     }
 
     /**
@@ -1815,10 +1926,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
             } else {
                 g.fill(r.x(), r.y(), r.right(), r.bottom(), 0x33C8A0E8);
                 outline(g, r, 0x80C8A0E8);
-                if (result == null) {
-                    // 收局时同样不画：这块小字会白亮地浮在收局面板上（咩咩 2026-10-06）。
-                    g.drawString(font, "EX", r.x() + 2, r.y() + 1, 0xB0E0C8FF);
-                }
+                g.drawString(font, "EX", r.x() + 2, r.y() + 1, 0xB0E0C8FF);
             }
         }
     }
@@ -1917,7 +2025,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
      * 放不下先缩字、缩到 0.5 还放不下就从后往前丢——攻守排在最前，最不该丢。
      */
     private void drawStatMarks(GuiGraphics g, DuelBoard.Zone z, FieldLayout.Rect r, int code) {
-        if (result != null || r.w() < 14 || r.h() < 14) {
+        if (r.w() < 14 || r.h() < 14) {
             return;
         }
         List<StatMark> marks = statMarks(z, code);
@@ -2131,10 +2239,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
         // 于是咩咩「什么都没看到」；现在：放得下照原样，放不下就缩字，
         // 缩到 0.5 还放不下就只留数字——数量是这一堆唯一非看不可的信息。
         int avail = r.w() - 4;
-        // 收局时这些小字一律不画：它们白亮、字又小，压在暗底上比收局面板还显眼
-        // （咩咩 2026-10-06：「几个数字…比弹出的胜利窗口还高」）。牌桌本身照画，
-        // 收局画面要的只是「背后还是刚打完那张牌桌」。
-        if (avail > 0 && result == null) {
+        if (avail > 0) {
             String text = label;
             float scale = 1f;
             if (font.width(text) > avail) {
@@ -2591,6 +2696,17 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
                 w -= chipW + 4;
             }
         }
+        int clock = secondsRemaining();
+        if (clock >= 0 && question != null && !submitted) {
+            String chip = DuelText.s(DuelText.STATUS_CLOCK, clock);
+            int chipW = font.width(chip) + 6;
+            if (chipW + 4 <= w) {
+                g.fill(textX, ty - 1, textX + chipW, ty + 10, 0xFF3A2A12);
+                g.drawString(font, chip, textX + 3, ty, 0xFFFFD0A0, true);
+                textX += chipW + 4;
+                w -= chipW + 4;
+            }
+        }
         // 内核时点单独一行、灰、小一号、限一行：它只是「现在是什么时候」，
         // 问句才是要回答的东西。ygopro 也是两行（duelclient.cpp:1585 的 %ls\n%ls）；
         // 这里特意不让它折行——一折就会把问句挤出状态条。
@@ -2656,9 +2772,8 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
         if (result == null) {
             return;
         }
-        // 压暗层比重一些（0xE0＝88%）：它只有 69% 时，牌堆数量与额外怪兽区的「EX」
-        // 这些白亮小字在暗底上依然显眼，看着就像「浮在收局面板之上」——咩咩 2026-10-06。
-        // 上一条（319db06）把窗口类面板改成不透明时漏了这一块，见下面那行。
+        // 这一层能盖住牌桌上的「EX」和牌堆数字，是因为 render() 在调用本方法之前
+        // 已经 flush 过。不 flush 的话那些字留在文字批里，会画在这块压暗层之后。
         g.fill(0, 0, width, height, 0xE0000000);
         FieldLayout.Rect r = resultRect();
         // 先描一圈亮边：面板压在牌桌上，没有边就看不出「这是一块板」。
@@ -2861,7 +2976,8 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
         if (font.width(text) + 6 > w) {
             text = num;
         }
-        g.fill(x, y - 1, x + w, y + 10, 0x90101820);
+        // 全不透明。0x90 会让底下的阶段条、EX、牌堆数字透上来，看着像那些字浮在徽章上面。
+        g.fill(x, y - 1, x + w, y + 10, 0xFF101820);
         int tx = rightAlign ? x + w - 3 - font.width(text) : x + 3;
         g.drawString(font, text, tx, y, color, true);
     }
@@ -3004,7 +3120,7 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
         if (w == null) {
             return;
         }
-        g.fill(w.x() - 3, w.y() - 3, w.right() + 3, w.bottom() + 3, 0x80000000);
+        g.fill(w.x() - 3, w.y() - 3, w.right() + 3, w.bottom() + 3, 0xFF0A1018);
         g.fill(w.x(), w.y(), w.right(), w.bottom(), 0xFF1A2A38);
         outline(g, w, 0xFFE0C060);
         int ty = w.y() + POPUP_PAD;
@@ -3363,8 +3479,9 @@ public class DuelScreen extends net.minecraft.client.gui.screens.Screen {
             g.drawString(font, clip((sel ? "√ " : "  ") + name, r.w() - 4),
                     r.x() + 2, r.y() + 1, sel ? 0xFFFFE060 : 0xFFE8F0F8, true);
         }
-        // 末尾的「取消」行：可取消的询问必须留一条不选的路。
-        if (cancelIndex() >= 0 && l.count() > piles.size()) {
+        // 末尾的「取消」行。询问自带取消项时这一行交出「不选」；
+        // 额外卡组自己摊开的特殊召唤列表没有这个选项，这一行只把列表收起。
+        if ((cancelIndex() >= 0 || extraListDismissable()) && l.count() > piles.size()) {
             FieldLayout.Rect cr = l.row(piles.size());
             if (cr != null) {
                 if (l.indexAt(mouseX, mouseY) == piles.size()) {
