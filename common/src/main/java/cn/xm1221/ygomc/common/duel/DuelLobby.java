@@ -17,7 +17,7 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>玩家之间的做法：潜行右键卡组盒选定对战卡组；手持决斗盘右键对方发出邀请；
  * 被邀请的人拿决斗盘右键空气（或再右键邀请者）接受。两副都选好才开局。
- * 指令 {@code /ygomc duel} 仍走同一套候场，方便排查。
+ * 指令 {@code /ygomc duel deck|invite|accept} 仍走同一套候场，方便排查。
  *
  * <h2>为什么要有这一层</h2>
  * {@link DuelRoom} 只认「两副卡组 + 两个玩家」，不管这两副是怎么来的。

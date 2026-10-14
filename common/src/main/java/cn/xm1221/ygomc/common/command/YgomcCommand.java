@@ -44,9 +44,8 @@ import java.util.List;
  * <ul>
  *   <li>{@code /ygomc status} —— 数据包、原生库、引擎各自是否就绪，正在跑哪几局；</li>
  *   <li>{@code /ygomc deck list} / {@code deck <名字>} —— 列出可用卡组、读一副并校验；</li>
- *   <li>{@code /ygomc selftest [名字]} —— 真的起一局打到收局并报出消息类型直方图；</li>
- *   <li>{@code /ygomc duel [名字]} —— 与 selftest 相同的开局路径，但不去刷日志，
- *       只把结果发回给发起者。留着它是因为它和决斗盘物品走的是同一条路。</li>
+ *   <li>{@code /ygomc selftest [名字]} —— 双方自动应答打到收局并报出消息类型直方图；</li>
+ *   <li>{@code /ygomc duel [名字]} —— 玩家操作一席，本地贪心 AI 操作另一席。</li>
  * </ul>
  *
  * <h2>为什么对局不在这里同步跑</h2>
@@ -171,12 +170,12 @@ public final class YgomcCommand {
                                             return 1;
                                         }))))
                 .then(Commands.literal("selftest")
-                        .executes(ctx -> launch(ctx.getSource(), null, true))
+                        .executes(ctx -> launchAuto(ctx.getSource(), null, true))
                         .then(Commands.argument("name", StringArgumentType.greedyString())
-                                .executes(ctx -> launch(ctx.getSource(),
+                                .executes(ctx -> launchAuto(ctx.getSource(),
                                         StringArgumentType.getString(ctx, "name"), true))))
                 .then(Commands.literal("duel")
-                        .executes(ctx -> launch(ctx.getSource(), null, false))
+                        .executes(ctx -> startSolo(ctx.getSource(), null))
                         .then(Commands.literal("abort")
                                 .executes(ctx -> abort(ctx.getSource())))
                         .then(Commands.literal("deck")
@@ -191,8 +190,8 @@ public final class YgomcCommand {
                         .then(Commands.literal("accept")
                                 .executes(ctx -> versusAccept(ctx.getSource())))
                         .then(Commands.argument("name", StringArgumentType.greedyString())
-                                .executes(ctx -> launch(ctx.getSource(),
-                                        StringArgumentType.getString(ctx, "name"), false)))));
+                                .executes(ctx -> startSolo(ctx.getSource(),
+                                        StringArgumentType.getString(ctx, "name"))))));
     }
 
     /**
@@ -300,11 +299,11 @@ public final class YgomcCommand {
     // ── 开局 ──────────────────────────────────────────────────────────────
 
     /**
-     * 校验卡组、开局。
+     * 校验卡组并启动双方自动应答的对局，用于 selftest/观战。
      *
-     * @param verbose 是否连消息类型直方图一起报（自检要，普通对局不要）
+     * @param verbose 是否连消息类型直方图一起报
      */
-    private static int launch(CommandSourceStack source, String deckName, boolean verbose) {
+    private static int launchAuto(CommandSourceStack source, String deckName, boolean verbose) {
         if (!OcgEngine.prepare()) {
             reply(source, "引擎不可用，无法开局：\n" + OcgEngine.problem());
             return 0;
@@ -340,6 +339,38 @@ public final class YgomcCommand {
         sb.append("这是观战形态。两个真人各自选卡组的对战：");
         sb.append("/ygomc duel deck <卡组> 各自选，/ygomc duel invite <玩家> 邀请，");
         sb.append("/ygomc duel accept 接受。");
+        reply(source, sb.toString());
+        return 1;
+    }
+
+    /**
+     * 校验卡组并启动玩家对本地贪心 AI 的单人对局。
+     */
+    private static int startSolo(CommandSourceStack source, String deckName) {
+        ServerPlayer player = source.getPlayer();
+        if (player == null) {
+            reply(source, "这条命令要由玩家执行");
+            return 0;
+        }
+        Resolved res = resolveDeck(source, deckName);
+        if (res == null) {
+            return 0;
+        }
+        String problem = DuelRoom.startFor(player, toLoadout(res.deck()),
+                opponentLoadoutForDuel());
+        if (problem != null) {
+            reply(source, problem);
+            return 0;
+        }
+
+        StringBuilder sb = new StringBuilder("已开局「").append(res.label()).append("」")
+                .append("（主 ").append(res.deck().main().size())
+                .append(" / 额外 ").append(res.deck().extra().size()).append("）");
+        if (res.warnings() > 0) {
+            sb.append("，有 ").append(res.warnings()).append(" 项提示，用 /ygomc deck ")
+              .append(res.label()).append(" 查看");
+        }
+        sb.append("\n你与本地贪心 AI 对战；中止用 /ygomc duel abort。");
         reply(source, sb.toString());
         return 1;
     }

@@ -20,7 +20,8 @@ Minecraft **1.21.1**，Architectury（Fabric 与 NeoForge 同一份公共代码�
 
 进游戏后：
 
-- `/ygomc duel` 用人机开一局。后面可以跟卡组名。
+- `/ygomc duel [卡组]` 开始单人对局，你操作一席，另一席由本地贪心 AI 应答。
+- `/ygomc selftest [卡组]` 让双方自动应答并观战。
 - `/ygomc duel deck <卡组>`、`/ygomc duel invite <玩家>`、`/ygomc duel accept` 开双人局。
 - `/ygomc duel abort` 中止自己这一局。超时默认 100 秒判负，不代答。
 - `/ygomc deck list` 列出 `ygomc/decks/` 里的卡组。

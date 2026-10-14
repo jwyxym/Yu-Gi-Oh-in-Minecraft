@@ -78,7 +78,7 @@
   "ygomc.lobby.invited": "%s challenges you. %s Right-click the air with a Duel Disk to accept. Sneak and right-click a Deck Box to choose your deck.",
   "ygomc.lobby.no_deck_yet": "They have not chosen a deck.",
   "ygomc.lobby.picked": "They chose \"%s\".",
-  "ygomc.lobby.how": "Right-click a player with the Duel Disk to challenge them. Sneak and right-click a Deck Box to choose your deck.",
+  "ygomc.lobby.how": "Use /ygomc duel [deck] to start a solo duel, or right-click a player with the Duel Disk to challenge them. Sneak and right-click a Deck Box to choose your deck.",
   "ygomc.lobby.disk_tip": "Right-click a player to challenge. Right-click the air to accept.",
   "ygomc.collection.hint.binder": "Click a card on the left to take it out. Click a card on the right to put it in.",
   "ygomc.collection.hint.creative": "Click a card to take a copy. The creative binder does not run out.",
