@@ -131,7 +131,13 @@ jobs:
           echo "checking $jar"
           python3 - <<'PY'
           import glob, zipfile, sys
-          jars = glob.glob("neoforge/build/libs/*.jar") + glob.glob("fabric/build/libs/*.jar")
+          jars = [
+              p for p in (
+                  glob.glob("neoforge/build/libs/*.jar")
+                  + glob.glob("fabric/build/libs/*.jar")
+              )
+              if not p.endswith("-sources.jar") and "-javadoc" not in p
+          ]
           need = [
               "ygomc/natives/win-x64/ocgcore.dll",
               "ygomc/natives/win-x64/ygomc_ocg.dll",
@@ -142,7 +148,7 @@ jobs:
               "ygomc/natives/osx-arm64/libocgcore.dylib",
               "ygomc/natives/osx-arm64/libygomc_ocg.dylib",
           ]
-          if len(jars) < 2:
+          if not any("neoforge/" in p for p in jars) or not any("fabric/" in p for p in jars):
               sys.exit("expected fabric and neoforge jars, got %s" % jars)
           for path in jars:
               names = set(zipfile.ZipFile(path).namelist())
