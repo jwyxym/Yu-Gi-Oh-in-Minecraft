@@ -1,0 +1,160 @@
+name: natives
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  native:
+    name: ${{ matrix.platform }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # windows-latest 在 2026 年是 Windows 2025，工具集不一定还是 v143。
+          # 现有的 premake vs2022 工程按 VS 2022 编，所以钉在 windows-2022。
+          - os: windows-2022
+            platform: win-x64
+          # ubuntu-latest 的 glibc 太新，编出来的 .so 在常见的 22.04 服务端上加载失败。
+          - os: ubuntu-22.04
+            platform: linux-x64
+          # macos-13 已下线。Intel 用 macos-15-intel，Apple Silicon 仍是 macos-14。
+          - os: macos-15-intel
+            platform: osx-x64
+          - os: macos-14
+            platform: osx-arm64
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Build Windows natives
+        if: matrix.platform == 'win-x64'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $zip = Join-Path $env:RUNNER_TEMP 'premake.zip'
+          Invoke-WebRequest -Uri 'https://github.com/premake/premake-core/releases/download/v5.0.0-beta8/premake-5.0.0-beta8-windows.zip' -OutFile $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
+          if ($hash -ne 'e64ce2ed8778e0098f63674cca61fe33941b5f0c8d9a4afd651152bdea3758ab') {
+            throw "premake sha256 不符: $hash"
+          }
+          $premakeDir = Join-Path $env:RUNNER_TEMP 'premake'
+          Expand-Archive $zip -DestinationPath $premakeDir
+          Push-Location natives/vendor/ocgcore
+          & (Join-Path $premakeDir 'premake5.exe') vs2022 --file=dll.lua
+          Pop-Location
+
+      - name: Add MSBuild to PATH
+        if: matrix.platform == 'win-x64'
+        uses: microsoft/setup-msbuild@v2
+
+      - name: Compile ocgcore.dll
+        if: matrix.platform == 'win-x64'
+        run: msbuild natives\vendor\ocgcore\build\ocgcoredll.sln /m /nologo /v:minimal /t:Build /p:Configuration=Release /p:Platform=x64
+
+      - name: Compile ygomc_ocg.dll
+        if: matrix.platform == 'win-x64'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          ./natives/build-jni.ps1
+          $bridge = 'natives/build/Release/ygomc_ocg.dll'
+          $exports = (dumpbin /EXPORTS $bridge | Out-String)
+          $deps = (dumpbin /DEPENDENTS $bridge | Out-String)
+          $deps
+          if ($exports -notmatch 'JNI_OnLoad') { throw 'JNI 桥没有导出 JNI_OnLoad' }
+          if ($deps -notmatch 'ocgcore.dll') { throw 'JNI 桥没有依赖 ocgcore.dll' }
+          New-Item -ItemType Directory -Force -Path natives/dist/win-x64 | Out-Null
+          Copy-Item natives/build/Release/ygomc_ocg.dll natives/dist/win-x64/
+          Copy-Item natives/vendor/ocgcore/build/bin/x64/Release/ocgcore.dll natives/dist/win-x64/
+
+      - name: Install GNU make
+        if: runner.os == 'macOS'
+        run: brew install make
+
+      - name: Build Unix natives
+        if: matrix.platform != 'win-x64'
+        run: ./natives/build.sh
+
+      - name: Upload natives
+        uses: actions/upload-artifact@v4
+        with:
+          name: natives-${{ matrix.platform }}
+          if-no-files-found: error
+          path: natives/dist/${{ matrix.platform }}/
+
+  package:
+    name: package jars
+    needs: native
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: natives-*
+          path: native-artifacts
+
+      - name: Lay out native libraries
+        run: |
+          set -euo pipefail
+          mkdir -p natives/build/Release
+          mkdir -p natives/vendor/ocgcore/build/bin/x64/Release
+          win="native-artifacts/natives-win-x64"
+          cp "$win/ocgcore.dll" natives/vendor/ocgcore/build/bin/x64/Release/ocgcore.dll
+          cp "$win/ygomc_ocg.dll" natives/build/Release/ygomc_ocg.dll
+          for id in linux-x64 osx-x64 osx-arm64; do
+            mkdir -p "natives/dist/$id"
+            cp -a "native-artifacts/natives-$id/." "natives/dist/$id/"
+          done
+          find natives/dist natives/build/Release natives/vendor/ocgcore/build/bin/x64/Release -type f -print
+
+      - name: Build mod jars
+        run: chmod +x ./gradlew && ./gradlew :neoforge:build :fabric:build --stacktrace
+
+      - name: Jars contain every shipped platform
+        run: |
+          set -euo pipefail
+          jar=$(echo neoforge/build/libs/*.jar | awk '{print $1}')
+          echo "checking $jar"
+          python3 - <<'PY'
+          import glob, zipfile, sys
+          jars = glob.glob("neoforge/build/libs/*.jar") + glob.glob("fabric/build/libs/*.jar")
+          need = [
+              "ygomc/natives/win-x64/ocgcore.dll",
+              "ygomc/natives/win-x64/ygomc_ocg.dll",
+              "ygomc/natives/linux-x64/libocgcore.so",
+              "ygomc/natives/linux-x64/libygomc_ocg.so",
+              "ygomc/natives/osx-x64/libocgcore.dylib",
+              "ygomc/natives/osx-x64/libygomc_ocg.dylib",
+              "ygomc/natives/osx-arm64/libocgcore.dylib",
+              "ygomc/natives/osx-arm64/libygomc_ocg.dylib",
+          ]
+          if len(jars) < 2:
+              sys.exit("expected fabric and neoforge jars, got %s" % jars)
+          for path in jars:
+              names = set(zipfile.ZipFile(path).namelist())
+              missing = [n for n in need if n not in names]
+              if missing:
+                  sys.exit("%s missing %s" % (path, missing))
+              print(path, "ok")
+          PY
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ygomc-jars
+          path: |
+            neoforge/build/libs/*.jar
+            fabric/build/libs/*.jar

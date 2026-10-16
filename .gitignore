@@ -14,6 +14,8 @@ runs/
 
 # ── 原生库构建中间产物 ──
 natives/build/
+natives/dist/
+natives/.cache/
 natives/**/*.obj
 natives/**/*.pdb
 natives/**/*.ilk

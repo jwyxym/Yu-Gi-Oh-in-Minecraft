@@ -58,7 +58,8 @@ $VcVars = $null
 foreach ($p in @(
         'E:\VS\VC\Auxiliary\Build\vcvars64.bat',
         'C:\Program Files\Microsoft Visual Studio\2022\Community\VC\Auxiliary\Build\vcvars64.bat',
-        'C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat')) {
+        'C:\Program Files\Microsoft Visual Studio\2022\BuildTools\VC\Auxiliary\Build\vcvars64.bat',
+        'C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Auxiliary\Build\vcvars64.bat')) {
     if (Test-Path $p) { $VcVars = $p; break }
 }
 if (-not $VcVars) { throw '找不到 vcvars64.bat，请装 Visual Studio C++ 生成工具。' }

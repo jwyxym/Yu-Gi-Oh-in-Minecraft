@@ -24,9 +24,10 @@ package cn.xm1221.ygomc.common.ocg;
  * 详见 .agent/reference/05-protocol-verified.md 5.2。
  *
  * <h2>原生库</h2>
- * 本类由 {@code ygomc_ocg.dll} 提供实现，后者动态依赖 {@code ocgcore.dll}。
- * 加载顺序必须是先 {@code ocgcore.dll} 再 {@code ygomc_ocg.dll}
- * （Windows 加载器按模块名复用已加载模块）。见 {@link #load}。
+ * 本类由 JNI 桥提供实现（Windows {@code ygomc_ocg.dll}，Linux {@code libygomc_ocg.so}，
+ * macOS {@code libygomc_ocg.dylib}），桥动态依赖对应的 ocgcore 动态库。
+ * 加载顺序必须是先内核再桥（Windows 加载器按模块名复用已加载模块，
+ * 不会到桥所在目录里找依赖）。见 {@link #load}。
  */
 public final class Ocg {
 
@@ -177,19 +178,19 @@ public final class Ocg {
     /**
      * 按正确顺序加载两个原生库。
      *
-     * <p>顺序是有意的：{@code ygomc_ocg.dll} 动态依赖 {@code ocgcore.dll}，
-     * 而 Windows 的依赖解析只看「模块名是否已在本进程内」，不看「是否同目录」。
-     * 所以必须先显式加载 {@code ocgcore.dll}。
+     * <p>顺序是有意的：JNI 桥动态依赖内核，而 Windows 的依赖解析只看
+     * 「模块名是否已在本进程内」，不看「是否同目录」。所以必须先显式加载内核。
+     * Linux / macOS 的桥带同目录 rpath，这里仍然先加载内核。
      *
-     * @param ocgCoreDll {@code ocgcore.dll} 绝对路径
-     * @param bridgeDll  {@code ygomc_ocg.dll} 绝对路径
+     * @param ocgCore 内核动态库的绝对路径
+     * @param bridge  JNI 桥动态库的绝对路径
      */
-    public static synchronized void load(String ocgCoreDll, String bridgeDll) {
+    public static synchronized void load(String ocgCore, String bridge) {
         if (loaded) {
             return;
         }
-        System.load(ocgCoreDll);
-        System.load(bridgeDll);
+        System.load(ocgCore);
+        System.load(bridge);
         loaded = true;
     }
 
