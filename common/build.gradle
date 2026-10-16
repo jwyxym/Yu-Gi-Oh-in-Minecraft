@@ -16,22 +16,46 @@ dependencies {
 }
 
 // ── 原生库打包 ────────────────────────────────────────────────────────────
-// ocgcore 是 C++ 规则引擎，没有原生动态库就跑不起来。这两个 DLL 都是构建产物
-// （natives/build/ 与 natives/vendor/ocgcore/build/ 都被 .gitignore 挡掉），
+// ocgcore 是 C++ 规则引擎，没有原生动态库就跑不起来。库都是构建产物
+// （natives/build/、natives/dist/ 与 natives/vendor/ocgcore/build/ 被 .gitignore 挡掉），
 // 所以全新 clone 里可能还没有：那种情况下**只是不打包**，让其余模块照常编译，
-// 等 natives 构建好之后再跑一次 Gradle 即可。
+// 等 natives 构建好之后再跑一次 Gradle 即可。哪个平台的文件在，就打进对应目录。
 // 运行时由 cn.xm1221.ygomc.common.ocg.Natives 从这些资源里解出来再 System.load。
-def nativeLibs = [
-        'ocgcore.dll'  : file("${rootProject.projectDir}/natives/vendor/ocgcore/build/bin/x64/Release/ocgcore.dll"),
-        'ygomc_ocg.dll': file("${rootProject.projectDir}/natives/build/Release/ygomc_ocg.dll"),
+//
+// Windows 仍读 MSVC 的原输出路径。Linux / macOS 读 natives/build.sh 放到 dist/ 的结果。
+// linux-arm64 不进 CI，本机编过就会打进去。
+def nativeRoot = rootProject.projectDir
+def nativeSets = [
+        'win-x64'    : [
+                'ocgcore.dll'       : file("${nativeRoot}/natives/vendor/ocgcore/build/bin/x64/Release/ocgcore.dll"),
+                'ygomc_ocg.dll'     : file("${nativeRoot}/natives/build/Release/ygomc_ocg.dll"),
+        ],
+        'linux-x64'  : [
+                'libocgcore.so'     : file("${nativeRoot}/natives/dist/linux-x64/libocgcore.so"),
+                'libygomc_ocg.so'   : file("${nativeRoot}/natives/dist/linux-x64/libygomc_ocg.so"),
+        ],
+        'linux-arm64': [
+                'libocgcore.so'     : file("${nativeRoot}/natives/dist/linux-arm64/libocgcore.so"),
+                'libygomc_ocg.so'   : file("${nativeRoot}/natives/dist/linux-arm64/libygomc_ocg.so"),
+        ],
+        'osx-x64'    : [
+                'libocgcore.dylib'  : file("${nativeRoot}/natives/dist/osx-x64/libocgcore.dylib"),
+                'libygomc_ocg.dylib': file("${nativeRoot}/natives/dist/osx-x64/libygomc_ocg.dylib"),
+        ],
+        'osx-arm64'  : [
+                'libocgcore.dylib'  : file("${nativeRoot}/natives/dist/osx-arm64/libocgcore.dylib"),
+                'libygomc_ocg.dylib': file("${nativeRoot}/natives/dist/osx-arm64/libygomc_ocg.dylib"),
+        ],
 ]
 
 tasks.named('processResources') {
-    nativeLibs.each { name, dll ->
-        if (dll.exists()) {
-            from(dll) { into 'ygomc/natives/win-x64' }
-        } else {
-            logger.warn("ygomc: 找不到原生库 {}，本次不打包（先构建 natives 再重跑）", dll)
+    nativeSets.each { platform, libs ->
+        libs.each { name, lib ->
+            if (lib.exists()) {
+                from(lib) { into "ygomc/natives/${platform}" }
+            } else {
+                logger.warn("ygomc: 找不到 {} 的 {}，本次不打包（先构建 natives 再重跑）", platform, lib)
+            }
         }
     }
 }

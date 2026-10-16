@@ -2,7 +2,7 @@
 
 在 Minecraft 里打游戏王。规则由 [ygopro-core](https://github.com/Fluorohydride/ygopro-core)（ocgcore，新大师规则）驱动，界面是这个模组自己画的。
 
-Minecraft **1.21.1**，Architectury（Fabric 与 NeoForge 同一份公共代码）。许可 **GPL-3.0-or-later**。原生库目前只提供 **Windows x64**。
+Minecraft **1.21.1**，Architectury（Fabric 与 NeoForge 同一份公共代码）。许可 **GPL-3.0-or-later**。原生库提供 **Windows x64**、**Linux x64**、**macOS x64** 与 **macOS arm64**。Linux arm64 的目录加载器认，发布包里没有；`natives/build.sh` 也编不了它，因为用的 premake5 没有 arm64 官方包。
 
 卡图、卡文和卡片脚本的版权属于 KONAMI 与各脚本作者，**不随模组分发**。需要自己准备数据，见下文。
 
@@ -32,11 +32,18 @@ Minecraft **1.21.1**，Architectury（Fabric 与 NeoForge 同一份公共代码�
 
 ## 构建
 
-需要 JDK 21。Windows 上还要先编出两个 DLL（见 `natives/build-jni.ps1`），否则模组能进游戏，但开不了局。
+需要 JDK 21。先编出当前系统的原生库，否则模组能进游戏，但开不了局。Windows 用 `natives/build-jni.ps1`（要先按 `natives/vendor/VENDOR.md` 编出 `ocgcore.dll`）。Linux 与 macOS 用 `natives/build.sh`，它会下载 premake5 并编出内核和 JNI 桥。
+
+本地只编当前系统。GitHub Actions（`.github/workflows/natives.yml`）在 Windows、Linux 和两套 macOS 上各编一份，再打进同一个 jar。那份发布包拿到 Linux 服务端或 Mac 上可以直接开局，不用再编原生库。
 
 ```
+# Windows
 gradlew.bat :neoforge:build
 gradlew.bat :fabric:build
+
+# Linux / macOS
+./gradlew :neoforge:build
+./gradlew :fabric:build
 ```
 
 产物在 `neoforge/build/libs/` 和 `fabric/build/libs/`。运行还依赖 Cloth Config 与 Architectury。

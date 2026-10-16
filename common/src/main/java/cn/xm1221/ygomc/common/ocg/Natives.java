@@ -31,25 +31,24 @@ import java.nio.file.StandardCopyOption;
  * 由 {@link #ensureLoaded()} 在开局前给出带原因的异常。
  *
  * <h2>平台范围</h2>
- * 只打包了 Windows x64 的两个库（见 {@code common/build.gradle}）。
- * 其他平台的玩家会在日志里看到明确说明，而不是一个莫名其妙的
- * {@code UnsatisfiedLinkError}。
+ * 发布包带四个平台的库（见 {@code common/build.gradle}）：
+ * Windows x64、Linux x64、macOS x64、macOS arm64。
+ * Linux arm64 的目录名也认，但发布包里默认没有，需要本机编。
+ * 对不上的系统会在日志里看到当前 {@code os.name}/{@code os.arch}，
+ * 而不是一个莫名其妙的 {@code UnsatisfiedLinkError}。
  */
 public final class Natives {
 
     private static final Logger LOGGER = LoggerFactory.getLogger("ygomc/natives");
 
-    /** 资源目录。放在 mod 自己的命名空间下，避免和别的模组撞名。 */
-    private static final String RESOURCE_DIR = "/ygomc/natives/win-x64/";
-
-    private static final String CORE = "ocgcore.dll";
-    private static final String BRIDGE = "ygomc_ocg.dll";
+    /** 发布构建会打进 jar 的平台。linux-arm64 能加载，但不在这个列表里。 */
+    private static final String SHIPPED = "win-x64、linux-x64、osx-x64、osx-arm64";
 
     /**
-     * 显式指定 DLL 所在目录：{@code -Dygomc.natives=<目录>}。
+     * 显式指定两个原生库所在目录：{@code -Dygomc.natives=<目录>}。
      *
-     * <p>开发时用它指向 {@code natives/build/Release} 附近的目录，
-     * 可以反复重编 DLL 而<b>不必重新打包模组</b>——这是调引擎时最常用的循环。
+     * <p>开发时用它指向刚编出来的目录，可以反复重编而<b>不必重新打包模组</b>。
+     * 目录里要有当前平台的内核和 JNI 桥，文件名见 {@link Kind}。
      */
     public static final String PROPERTY = "ygomc.natives";
 
@@ -77,32 +76,28 @@ public final class Natives {
     /**
      * 保证两个原生库已按正确顺序加载，否则抛出说明原因的异常。
      *
-     * <p>顺序不能反：{@code ygomc_ocg.dll} 动态依赖 {@code ocgcore.dll}，
-     * 而 Windows 的依赖解析只看「这个模块名是否已经在本进程里」，
-     * 不会去同目录找。所以必须先把 {@code ocgcore.dll} 顶上去。
+     * <p>顺序不能反：JNI 桥动态依赖内核。Windows 的依赖解析只看
+     * 「这个模块名是否已经在本进程里」，不会去同目录找，所以必须先把内核顶上去。
+     * Linux / macOS 的桥另外带了指向同目录的 rpath，加载顺序仍然先内核。
      */
     public static synchronized void ensureLoaded() {
         if (Ocg.isLoaded()) {
             return;
         }
-        if (!isWindowsX64()) {
-            throw new IllegalStateException(
-                    "本模组目前只提供 Windows x64 的原生库，当前系统是 "
-                            + System.getProperty("os.name") + "/" + System.getProperty("os.arch"));
-        }
+        Kind kind = current();
 
         String override = System.getProperty(PROPERTY);
         if (override != null && !override.isBlank()) {
-            // 显式指定的目录直接用，不从资源里解——这样重编 DLL 后重启即可生效。
+            // 显式指定的目录直接用，不从资源里解——这样重编之后重启即可生效。
             Path dir = Path.of(override).toAbsolutePath().normalize();
             directory = dir;
-            requireBoth(dir);
-            Ocg.load(dir.resolve(CORE).toString(), dir.resolve(BRIDGE).toString());
+            requireBoth(dir, kind);
+            Ocg.load(dir.resolve(kind.core).toString(), dir.resolve(kind.bridge).toString());
             return;
         }
 
-        byte[] core = readResource(CORE);
-        byte[] bridge = readResource(BRIDGE);
+        byte[] core = readResource(kind, kind.core);
+        byte[] bridge = readResource(kind, kind.bridge);
         Path dir = Platform.getGameFolder()
                 .resolve("ygomc/natives")
                 // 指纹用「长度 + 内容哈希」：长度单独用会漏掉「改了实现但体积没变」，
@@ -113,12 +108,12 @@ public final class Natives {
 
         try {
             Files.createDirectories(dir);
-            writeIfAbsent(dir.resolve(CORE), core);
-            writeIfAbsent(dir.resolve(BRIDGE), bridge);
+            writeIfAbsent(dir.resolve(kind.core), core);
+            writeIfAbsent(dir.resolve(kind.bridge), bridge);
         } catch (IOException e) {
             throw new IllegalStateException("解出原生库到 " + dir + " 失败: " + e, e);
         }
-        Ocg.load(dir.resolve(CORE).toString(), dir.resolve(BRIDGE).toString());
+        Ocg.load(dir.resolve(kind.core).toString(), dir.resolve(kind.bridge).toString());
     }
 
     /** 已加载成功的库所在目录；未加载时返回 null。 */
@@ -131,29 +126,98 @@ public final class Natives {
         return problem;
     }
 
-    /** 资源里有没有打包原生库。用来区分「没打包」和「打包了但提取失败」。 */
+    /** 资源里有没有打包当前平台的原生库。用来区分「没打包」和「打包了但提取失败」。 */
     public static boolean isBundled() {
-        return Natives.class.getResource(RESOURCE_DIR + CORE) != null;
+        Kind kind = detect(System.getProperty("os.name", ""), System.getProperty("os.arch", ""));
+        if (kind == null) {
+            return false;
+        }
+        return Natives.class.getResource(resourceDir(kind) + kind.core) != null;
     }
 
     // ── 内部 ──────────────────────────────────────────────────────────────
 
-    private static void requireBoth(Path dir) {
-        for (String name : new String[]{CORE, BRIDGE}) {
+    /**
+     * 一个平台对应的资源目录名和两个库的文件名。
+     * {@code id} 与 jar 里的 {@code ygomc/natives/<id>/}、以及 {@code natives/dist/<id>/} 相同。
+     */
+    enum Kind {
+        WIN_X64("win-x64", "ocgcore.dll", "ygomc_ocg.dll", "natives/build-jni.ps1"),
+        LINUX_X64("linux-x64", "libocgcore.so", "libygomc_ocg.so", "natives/build.sh"),
+        LINUX_ARM64("linux-arm64", "libocgcore.so", "libygomc_ocg.so", "natives/build.sh"),
+        OSX_X64("osx-x64", "libocgcore.dylib", "libygomc_ocg.dylib", "natives/build.sh"),
+        OSX_ARM64("osx-arm64", "libocgcore.dylib", "libygomc_ocg.dylib", "natives/build.sh");
+
+        final String id;
+        final String core;
+        final String bridge;
+        final String buildScript;
+
+        Kind(String id, String core, String bridge, String buildScript) {
+            this.id = id;
+            this.core = core;
+            this.bridge = bridge;
+            this.buildScript = buildScript;
+        }
+    }
+
+    static Kind detect(String osName, String arch) {
+        String os = osName == null ? "" : osName.toLowerCase();
+        String a = arch == null ? "" : arch.toLowerCase();
+        boolean x64 = a.equals("amd64") || a.equals("x86_64");
+        boolean arm64 = a.equals("aarch64") || a.equals("arm64");
+        if (os.contains("win")) {
+            return x64 ? Kind.WIN_X64 : null;
+        }
+        if (os.contains("mac")) {
+            if (x64) {
+                return Kind.OSX_X64;
+            }
+            return arm64 ? Kind.OSX_ARM64 : null;
+        }
+        if (os.contains("linux") || os.contains("nix")) {
+            if (x64) {
+                return Kind.LINUX_X64;
+            }
+            return arm64 ? Kind.LINUX_ARM64 : null;
+        }
+        return null;
+    }
+
+    private static Kind current() {
+        String os = System.getProperty("os.name", "");
+        String arch = System.getProperty("os.arch", "");
+        Kind kind = detect(os, arch);
+        if (kind == null) {
+            throw new IllegalStateException(
+                    "没有适用于 " + os + "/" + arch + " 的原生库。发布包提供 " + SHIPPED + "。");
+        }
+        return kind;
+    }
+
+    private static String resourceDir(Kind kind) {
+        return "/ygomc/natives/" + kind.id + "/";
+    }
+
+    private static void requireBoth(Path dir, Kind kind) {
+        for (String name : new String[]{kind.core, kind.bridge}) {
             if (!Files.isRegularFile(dir.resolve(name))) {
                 throw new IllegalStateException(
-                        "-D" + PROPERTY + " 指向的目录里缺少 " + name + ": " + dir);
+                        "-D" + PROPERTY + " 指向的目录里缺少 " + name + "（平台 " + kind.id + "）: " + dir);
             }
         }
     }
 
-    private static byte[] readResource(String name) {
-        try (InputStream in = Natives.class.getResourceAsStream(RESOURCE_DIR + name)) {
+    private static byte[] readResource(Kind kind, String name) {
+        String path = resourceDir(kind) + name;
+        try (InputStream in = Natives.class.getResourceAsStream(path)) {
             if (in == null) {
                 throw new IllegalStateException(
-                        "模组里没有打包 " + RESOURCE_DIR + name
-                                + "。请先构建 natives（natives/build-jni.ps1）再重新构建模组，"
-                                + "或用 -D" + PROPERTY + "=<目录> 指定 DLL 所在位置。");
+                        "模组里没有打包 " + path
+                                + "。发布包提供 " + SHIPPED
+                                + "。请先构建 natives（" + kind.buildScript + "）再重新构建模组，"
+                                + "或用 -D" + PROPERTY + "=<目录> 指定 " + kind.core
+                                + " 与 " + kind.bridge + " 所在位置。");
             }
             return in.readAllBytes();
         } catch (IOException e) {
@@ -175,11 +239,6 @@ public final class Natives {
         Path tmp = target.resolveSibling(target.getFileName() + ".tmp");
         Files.write(tmp, bytes);
         Files.move(tmp, target, StandardCopyOption.REPLACE_EXISTING);
-    }
-
-    private static boolean isWindowsX64() {
-        return System.getProperty("os.name", "").toLowerCase().contains("win")
-                && System.getProperty("os.arch", "").contains("64");
     }
 
     /** FNV-1a 32 位。用途只是「区分不同构建」，不涉及安全，所以不需要密码学哈希。 */
