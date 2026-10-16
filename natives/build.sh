@@ -17,6 +17,7 @@ PREMAKE_BASE="https://github.com/premake/premake-core/releases/download/v${PREMA
 
 os="$(uname -s)"
 machine="$(uname -m)"
+ARCH_FLAGS=()
 case "$os:$machine" in
     Linux:x86_64)
         PLATFORM=linux-x64
@@ -25,6 +26,7 @@ case "$os:$machine" in
         CORE_NAME=libocgcore.so
         BRIDGE_NAME=libygomc_ocg.so
         JNI_INC=linux
+        MAKE_CONFIG=release_x64
         ;;
     Linux:aarch64)
         # 加载器和 Gradle 认 natives/dist/linux-arm64，但 premake 5.0.0-beta8
@@ -40,6 +42,8 @@ case "$os:$machine" in
         CORE_NAME=libocgcore.dylib
         BRIDGE_NAME=libygomc_ocg.dylib
         JNI_INC=darwin
+        MAKE_CONFIG=release_x64
+        ARCH_FLAGS=(-arch x86_64)
         ;;
     Darwin:arm64)
         PLATFORM=osx-arm64
@@ -49,12 +53,16 @@ case "$os:$machine" in
         CORE_NAME=libocgcore.dylib
         BRIDGE_NAME=libygomc_ocg.dylib
         JNI_INC=darwin
+        # dll.lua 的 arm64 平台对应 config=release_arm64；JNI 桥也要显式按 arm64 链。
+        MAKE_CONFIG=release_arm64
+        ARCH_FLAGS=(-arch arm64)
         ;;
     *)
         echo "natives/build.sh 只构建 Linux 与 macOS，当前是 $os/$machine。Windows 请用 natives/build-jni.ps1。" >&2
         exit 1
         ;;
 esac
+
 
 if [[ -n "${JAVA_HOME:-}" && -f "$JAVA_HOME/include/jni.h" ]]; then
     JDK="$JAVA_HOME"
@@ -174,12 +182,13 @@ echo "编译 ocgcore ..."
 # macOS 用系统 libc++，不静态链接。
 # dll.lua / 部分 gmake 配置不会带上标准，显式强制 C++17（修 osx-arm64 constexpr）。
 CXXFLAGS_OCG="${CXXFLAGS:-} -std=c++17"
+echo "ocgcore config: $MAKE_CONFIG"
 if [[ "$os" == Linux ]]; then
-    "$MAKE" -C "$CORE_SRC/build" -j"$jobs" config=release_x64 \
+    "$MAKE" -C "$CORE_SRC/build" -j"$jobs" "config=$MAKE_CONFIG" \
         CXXFLAGS="$CXXFLAGS_OCG" \
         LDFLAGS="-static-libstdc++ -static-libgcc"
 else
-    "$MAKE" -C "$CORE_SRC/build" -j"$jobs" config=release_x64 \
+    "$MAKE" -C "$CORE_SRC/build" -j"$jobs" "config=$MAKE_CONFIG" \
         CXXFLAGS="$CXXFLAGS_OCG"
 fi
 
@@ -220,7 +229,7 @@ if [[ "$os" == Linux ]]; then
         -Wl,-soname,"$BRIDGE_NAME" \
         -o "$DIST/$BRIDGE_NAME"
 else
-    "$CXX" -dynamiclib "${common_flags[@]}" \
+    "$CXX" -dynamiclib "${ARCH_FLAGS[@]}" "${common_flags[@]}" \
         -mmacosx-version-min=11.0 \
         -Wl,-rpath,@loader_path \
         -Wl,-install_name,"@rpath/$BRIDGE_NAME" \
