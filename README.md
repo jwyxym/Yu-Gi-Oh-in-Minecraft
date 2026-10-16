@@ -14,9 +14,9 @@ Minecraft **1.21.1**，Architectury（Fabric 与 NeoForge 同一份公共代码�
 |---|---|
 | `ygomc/datapack/` | `cards.bin`、`texts.bin`、`strings.bin`、`pics.bin` |
 | `ygomc/script/` | ocgcore 的 Lua 脚本（`c*.lua` 以及 `constant.lua` 等） |
-| `ygomc/decks/` | `.ydk` 卡组 |
+| `ygomc/decks/` | `.ydk` 卡组 -可选|
 
-数据包用仓库里的 `tools/mkdatapack.py`、`tools/mkpics.py` 从本地的 `cards.cdb` 和卡图生成，产物放进 `ygomc/datapack/`。生成物体积大，而且含版权素材，不要提交进 git。
+数据包用仓库里的 `tools/mkdatapack.py`、`tools/mkpics.py` 从本地的 `cards.cdb` 和卡图生成，产物放进 `ygomc/datapack/`。生成物体积大，而且含版权素材，所以不进行公开分发
 
 进游戏后：
 
