@@ -14,6 +14,10 @@ end
 workspace "ocgcoredll"
     location "build"
     language "C++"
+    -- gmake/clang 默认可能是 C++98；ocgcore 头文件用了 constexpr，需要至少 C++14。
+    filter "not action:vs*"
+        cppdialect "C++17"
+    filter {}
 
     configurations { "Release", "Debug" }
     platforms { "x32", "x64" }
